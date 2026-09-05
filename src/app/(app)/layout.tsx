@@ -15,7 +15,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-svh flex-col">
       <TopNav coach={coach} />
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-20 pt-4 md:pb-8">{children}</main>
-      <BottomTabBar profileHref={`/coaches/${coach.id}`} />
+      <BottomTabBar profileHref={`/coaches/${coach.id}`} isAdmin={coach.isAdmin} />
       <Toaster />
     </div>
   );

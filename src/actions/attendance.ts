@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireCoach } from "@/lib/session";
 import { canAccessClass } from "@/lib/authorization";
+import { sendGuardianAttendanceNotification } from "@/lib/notifications";
 import { markAttendanceSchema, submitSessionSchema, reopenSessionSchema } from "@/validations/attendance";
 
 export type ActionResult<T = undefined> = { success: true; data: T } | { success: false; error: string };
@@ -44,7 +45,9 @@ export async function markAttendanceRecord(
   return { success: true, data: { status, sessionId: session.id } };
 }
 
-export async function submitAttendanceSession(input: unknown): Promise<ActionResult> {
+export async function submitAttendanceSession(
+  input: unknown,
+): Promise<ActionResult<{ notified: number; skipped: number }>> {
   const coach = await requireCoach();
   const parsed = submitSessionSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: "Invalid input." };
@@ -70,9 +73,32 @@ export async function submitAttendanceSession(input: unknown): Promise<ActionRes
     data: { submittedAt: new Date() },
   });
 
+  // Guardians of anyone who actually showed up (Present/Late) get notified —
+  // Absent never fires one. Best-effort: a notification failure doesn't undo
+  // the already-saved attendance, it just doesn't count toward `notified`.
+  const arrivals = session.records.filter(
+    (r): r is typeof r & { status: "PRESENT" | "LATE" } => r.status === "PRESENT" || r.status === "LATE",
+  );
+  let notified = 0;
+  let skipped = 0;
+  for (const record of arrivals) {
+    try {
+      const result = await sendGuardianAttendanceNotification({
+        studentId: record.studentId,
+        classId,
+        sessionDate,
+        status: record.status,
+      });
+      if (result.delivered) notified++;
+      else skipped++;
+    } catch {
+      skipped++;
+    }
+  }
+
   revalidatePath(`/classes/${classId}/attendance`);
   revalidatePath("/");
-  return { success: true, data: undefined };
+  return { success: true, data: { notified, skipped } };
 }
 
 export async function reopenAttendanceSession(input: unknown): Promise<ActionResult> {

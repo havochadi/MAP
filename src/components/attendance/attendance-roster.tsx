@@ -66,7 +66,12 @@ export function AttendanceRoster({
       return;
     }
     setSubmittedAt(new Date().toISOString());
-    toast.success("Attendance saved.");
+    const { notified, skipped } = result.data;
+    toast.success(
+      notified + skipped === 0
+        ? "Attendance saved."
+        : `Attendance saved. Guardians notified: ${notified}/${notified + skipped}${skipped > 0 ? " (no phone on file for the rest)" : ""}.`,
+    );
   }
 
   async function handleReopen() {

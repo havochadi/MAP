@@ -34,9 +34,6 @@ export default async function ClassDetailPage({ params }: { params: Promise<{ cl
         <Link href={`/classes/${classId}/attendance`} className={buttonVariants()}>
           Take attendance
         </Link>
-        <Link href={`/classes/${classId}/progress`} className={buttonVariants({ variant: "outline" })}>
-          View progress
-        </Link>
       </div>
 
       <div>

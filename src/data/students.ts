@@ -19,16 +19,7 @@ export async function getStudentProfile(studentId: string) {
     orderBy: { session: { sessionDate: "desc" } },
   });
 
-  const classIds = student.enrollments.map((e) => e.classId);
-  const progress =
-    classIds.length === 0
-      ? []
-      : await prisma.classProgress.findMany({
-          where: { classId: { in: classIds } },
-          select: { classId: true, status: true },
-        });
-
-  return { student, records, progress };
+  return { student, records };
 }
 
 export async function getStudentsForCoach(coachId: string, isAdmin: boolean) {

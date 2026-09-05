@@ -16,24 +16,16 @@ export async function getClassesForCoach(coachId: string, isAdmin: boolean) {
   const today = getSingaporeTodayString();
   const classIds = classes.map((c) => c.id);
 
-  const [todaySessions, dueTodayProgress] = await Promise.all([
-    prisma.attendanceSession.findMany({
-      where: { classId: { in: classIds }, sessionDate: today },
-    }),
-    prisma.classProgress.findMany({
-      where: { classId: { in: classIds }, plannedDate: today, status: "PLANNED" },
-      include: { topic: true },
-    }),
-  ]);
+  const todaySessions = await prisma.attendanceSession.findMany({
+    where: { classId: { in: classIds }, sessionDate: today },
+  });
 
   const sessionByClass = new Map(todaySessions.map((s) => [s.classId, s]));
-  const topicByClass = new Map(dueTodayProgress.map((p) => [p.classId, p.topic]));
 
   return classes.map((cls) => ({
     ...cls,
     studentCount: cls._count.enrollments,
     todaySession: sessionByClass.get(cls.id) ?? null,
-    todayTopic: topicByClass.get(cls.id) ?? null,
   }));
 }
 

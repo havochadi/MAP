@@ -13,6 +13,35 @@ export type ActionResult<T = undefined> = { success: true; data: T } | { success
 
 export type LoginState = { error?: string } | undefined;
 
+export type QuickLoginRole = "coach" | "admin" | "student";
+
+// Demo accounts this project already treats as its designated examples —
+// farhan and Amir Hafiz are called out by name in the README as the
+// showcase coach/student, admin@map.test is the only admin account that
+// exists. Not gated to non-production: these credentials are already
+// published in plain text in the README for anyone reading the repo.
+const QUICK_LOGIN_COACH_ACCOUNTS: Record<"coach" | "admin", { email: string; password: string }> = {
+  coach: { email: "farhan@map.test", password: "Coach123!" },
+  admin: { email: "admin@map.test", password: "Coach123!" },
+};
+const QUICK_LOGIN_STUDENT_CODE = "GHW7UD";
+
+export async function quickLoginAction(role: QuickLoginRole): Promise<LoginState> {
+  try {
+    if (role === "student") {
+      await signIn("student", { code: QUICK_LOGIN_STUDENT_CODE, redirectTo: "/student" });
+    } else {
+      const { email, password } = QUICK_LOGIN_COACH_ACCOUNTS[role];
+      await signIn("coach", { email, password, redirectTo: "/" });
+    }
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { error: "Quick login failed — the demo account may have changed." };
+    }
+    throw error;
+  }
+}
+
 export async function loginAction(_prevState: LoginState, formData: FormData): Promise<LoginState> {
   try {
     await signIn("coach", {

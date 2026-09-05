@@ -89,10 +89,11 @@ model Class {
   durationMinutes Int       @default(90)
   createdAt       DateTime  @default(now())
 
-  enrollments        Enrollment[]
-  assignments        ClassAssignment[]
-  attendanceSessions AttendanceSession[]
-  progress           ClassProgress[]
+  enrollments           Enrollment[]
+  assignments           ClassAssignment[]
+  attendanceSessions    AttendanceSession[]
+  progress              ClassProgress[]
+  guardianNotifications GuardianNotification[]
 
   @@index([venueId])
   @@index([subject, level])
@@ -144,8 +145,9 @@ model Student {
   // appropriate for a view-only, low-sensitivity account.
   loginCode     String        @unique
 
-  enrollments       Enrollment[]
-  attendanceRecords AttendanceRecord[]
+  enrollments           Enrollment[]
+  attendanceRecords     AttendanceRecord[]
+  guardianNotifications GuardianNotification[]
 
   @@index([venueId])
   @@index([level])
@@ -219,6 +221,33 @@ model AttendanceRecord {
 
   // Re-tapping the same student's status upserts on this key — never duplicates.
   @@unique([attendanceSessionId, studentId])
+  @@index([studentId])
+}
+
+model GuardianNotification {
+  // A logged record of the guardian-contact API firing when a student is
+  // marked PRESENT/LATE on a submitted attendance session. There is no real
+  // SMS/email provider wired up (deliberate, see the route handler) — this
+  // table is itself the "delivery," simulated and auditable rather than
+  // actually sent.
+  id             String           @id @default(cuid())
+  studentId      String
+  student        Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId        String
+  class          Class            @relation(fields: [classId], references: [id], onDelete: Cascade)
+  sessionDate    String
+  status         AttendanceStatus
+  // Snapshot of Student.guardianPhone at send time, not a live reference —
+  // preserves what the notification actually went to even if the phone on
+  // file changes later. Null when the student had no guardian phone on file.
+  recipientPhone String?
+  delivered      Boolean
+  message        String
+  sentAt         DateTime         @default(now())
+
+  // One notification per student per class per day — resubmitting a
+  // corrected session (after reopening) doesn't re-spam the same guardian.
+  @@unique([studentId, classId, sessionDate])
   @@index([studentId])
 }
 

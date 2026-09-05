@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireCoach } from "@/lib/session";
 import { getStudentsForCoach } from "@/data/students";
 import { formatLevel, getInitials } from "@/lib/format";
@@ -9,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 export default async function StudentsPage() {
   const coach = await requireCoach();
+  if (!coach.isAdmin) redirect("/");
   const students = await getStudentsForCoach(coach.id, coach.isAdmin);
 
   return (

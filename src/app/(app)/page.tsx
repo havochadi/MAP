@@ -47,9 +47,6 @@ export default async function DashboardPage() {
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">{cls.studentCount} students enrolled</p>
-                      {cls.todayTopic && (
-                        <p className="text-xs font-medium text-primary">Today: {cls.todayTopic.title}</p>
-                      )}
                     </CardContent>
                   </Card>
                 </Link>

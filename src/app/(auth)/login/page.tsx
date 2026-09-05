@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { loginAction, studentLoginAction } from "@/actions/coaches";
+import { loginAction, studentLoginAction, quickLoginAction } from "@/actions/coaches";
 import { AppLogo } from "@/components/app-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 export default function LoginPage() {
   const [coachState, coachFormAction, isCoachPending] = useActionState(loginAction, undefined);
   const [studentState, studentFormAction, isStudentPending] = useActionState(studentLoginAction, undefined);
+  const [quickCoachState, quickCoachAction, isQuickCoachPending] = useActionState(quickLoginAction.bind(null, "coach"), undefined);
+  const [quickAdminState, quickAdminAction, isQuickAdminPending] = useActionState(quickLoginAction.bind(null, "admin"), undefined);
+  const [quickStudentState, quickStudentAction, isQuickStudentPending] = useActionState(
+    quickLoginAction.bind(null, "student"),
+    undefined,
+  );
+  const quickLoginError = quickCoachState?.error ?? quickAdminState?.error ?? quickStudentState?.error;
 
   return (
     <div className="flex min-h-svh items-center justify-center bg-gradient-to-b from-sky-50 via-muted/30 to-muted/40 px-4">
@@ -22,6 +29,34 @@ export default function LoginPage() {
             <h1 className="text-lg font-semibold">MAP Coach Portal</h1>
             <p className="text-sm text-muted-foreground">MENDAKI Achievement Programme</p>
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-center text-xs font-medium text-muted-foreground">Quick demo login</p>
+          <div className="grid grid-cols-3 gap-2">
+            <form action={quickCoachAction}>
+              <Button type="submit" variant="outline" size="sm" className="w-full" disabled={isQuickCoachPending}>
+                Coach
+              </Button>
+            </form>
+            <form action={quickAdminAction}>
+              <Button type="submit" variant="outline" size="sm" className="w-full" disabled={isQuickAdminPending}>
+                Admin
+              </Button>
+            </form>
+            <form action={quickStudentAction}>
+              <Button type="submit" variant="outline" size="sm" className="w-full" disabled={isQuickStudentPending}>
+                Student
+              </Button>
+            </form>
+          </div>
+          {quickLoginError ? (
+            <p role="alert" className="text-center text-xs text-destructive">
+              {quickLoginError}
+            </p>
+          ) : (
+            <p className="text-center text-xs text-muted-foreground">Signs in instantly with a seeded demo account.</p>
+          )}
         </div>
 
         <Card>

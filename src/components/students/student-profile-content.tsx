@@ -21,7 +21,6 @@ type StudentProfileData = NonNullable<Awaited<ReturnType<typeof getStudentProfil
 export function StudentProfileContent({
   student,
   records,
-  progress,
   classHref,
   enrollmentExtra,
 }: StudentProfileData & {
@@ -41,14 +40,6 @@ export function StudentProfileContent({
     const list = recordsByClass.get(r.session.classId) ?? [];
     list.push(r);
     recordsByClass.set(r.session.classId, list);
-  }
-
-  const progressByClass = new Map<string, { completed: number; total: number }>();
-  for (const p of progress) {
-    const entry = progressByClass.get(p.classId) ?? { completed: 0, total: 0 };
-    entry.total++;
-    if (p.status === "COMPLETED") entry.completed++;
-    progressByClass.set(p.classId, entry);
   }
 
   return (
@@ -105,7 +96,6 @@ export function StudentProfileContent({
         {student.enrollments.map((e) => {
           const classRecords = (recordsByClass.get(e.classId) ?? []).map(toRecordLike);
           const classSummary = summarizeAttendance(classRecords);
-          const classProgress = progressByClass.get(e.classId) ?? { completed: 0, total: 0 };
           const href = classHref?.(e.classId);
 
           return (
@@ -130,17 +120,6 @@ export function StudentProfileContent({
                   </div>
                 </div>
                 <AttendanceFlags summary={classSummary} />
-                {classProgress.total > 0 && (
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Curriculum progress</span>
-                      <span>
-                        {classProgress.completed}/{classProgress.total} topics
-                      </span>
-                    </div>
-                    <Progress value={(classProgress.completed / classProgress.total) * 100} />
-                  </div>
-                )}
               </CardContent>
             </Card>
           );

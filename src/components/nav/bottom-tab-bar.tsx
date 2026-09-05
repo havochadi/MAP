@@ -8,11 +8,11 @@ import { cn } from "@/lib/utils";
 // Deliberately not shadcn's Sidebar primitive — a slide-out drawer needs an
 // extra tap to open, which works against "fast, standing in a classroom."
 // This bar is always visible, thumb-reachable, no open/close step.
-export function BottomTabBar({ profileHref }: { profileHref: string }) {
+export function BottomTabBar({ profileHref, isAdmin }: { profileHref: string; isAdmin: boolean }) {
   const pathname = usePathname();
   const tabs = [
     { href: "/", label: "Home", icon: Home },
-    { href: "/students", label: "Students", icon: Users },
+    ...(isAdmin ? [{ href: "/students", label: "Students", icon: Users }] : []),
     { href: "/curriculum", label: "Curriculum", icon: BookOpen },
     { href: profileHref, label: "Profile", icon: UserCircle },
   ];

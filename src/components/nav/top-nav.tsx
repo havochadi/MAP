@@ -17,7 +17,6 @@ export function TopNav({ coach }: { coach: NavCoach }) {
   const profileHref = `/coaches/${coach.id}`;
   const links = [
     { href: "/", label: "Home", icon: Home },
-    { href: "/students", label: "Students", icon: Users },
     { href: "/curriculum", label: "Curriculum", icon: BookOpen },
     { href: profileHref, label: "Profile", icon: UserCircle },
   ];
@@ -49,16 +48,29 @@ export function TopNav({ coach }: { coach: NavCoach }) {
             );
           })}
           {coach.isAdmin && (
-            <Link
-              href="/venues"
-              aria-current={pathname.startsWith("/venues") ? "page" : undefined}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm",
-                pathname.startsWith("/venues") ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Venues
-            </Link>
+            <>
+              <Link
+                href="/students"
+                aria-current={pathname.startsWith("/students") ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm",
+                  pathname.startsWith("/students") ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Users className="size-4" aria-hidden="true" />
+                Students
+              </Link>
+              <Link
+                href="/venues"
+                aria-current={pathname.startsWith("/venues") ? "page" : undefined}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm",
+                  pathname.startsWith("/venues") ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Venues
+              </Link>
+            </>
           )}
         </nav>
         <div className="flex items-center gap-3">

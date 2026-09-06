@@ -1,11 +1,10 @@
 "use server";
 
-import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
+import { generateUniqueLoginCode } from "@/lib/login-code";
 import {
-  createStudentSchema,
   enrollStudentSchema,
   dropEnrollmentSchema,
   updateStudentStatusSchema,
@@ -14,40 +13,6 @@ import {
 export type ActionResult<T = undefined> = { success: true; data: T } | { success: false; error: string };
 
 const MAX_ACTIVE_ENROLLMENTS = 3;
-
-// Same alphabet as the seed script's generator (no ambiguous 0/O, 1/I), but
-// genuinely random here rather than deterministic — this runs at arbitrary
-// times against real data, not for reproducible demo seeding.
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-async function generateUniqueLoginCode(): Promise<string> {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    let code = "";
-    for (let i = 0; i < 6; i++) code += CODE_ALPHABET[crypto.randomInt(CODE_ALPHABET.length)];
-    const existing = await prisma.student.findUnique({ where: { loginCode: code } });
-    if (!existing) return code;
-  }
-  throw new Error("Could not generate a unique student login code after 10 attempts.");
-}
-
-export async function createStudent(input: unknown): Promise<ActionResult<{ studentId: string; loginCode: string }>> {
-  await requireAdmin();
-  const parsed = createStudentSchema.safeParse(input);
-  if (!parsed.success) return { success: false, error: "Invalid input." };
-  const { name, level, venueId, guardianName, guardianPhone, initialClassId } = parsed.data;
-
-  const loginCode = await generateUniqueLoginCode();
-  const student = await prisma.student.create({
-    data: { name, level, venueId, guardianName, guardianPhone, loginCode },
-  });
-
-  if (initialClassId) {
-    await prisma.enrollment.create({ data: { studentId: student.id, classId: initialClassId } });
-  }
-
-  revalidatePath("/students");
-  return { success: true, data: { studentId: student.id, loginCode } };
-}
 
 export async function regenerateLoginCode(studentId: string): Promise<ActionResult<{ loginCode: string }>> {
   await requireAdmin();

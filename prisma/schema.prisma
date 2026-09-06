@@ -29,6 +29,8 @@ enum Level {
   SEC3
   SEC4
   SEC5
+  JC1
+  JC2
 }
 
 enum DayOfWeek {
@@ -52,6 +54,27 @@ enum EnrollmentStatus {
   DROPPED
 }
 
+enum EmergencyContactRelationship {
+  MOTHER
+  FATHER
+  GUARDIAN
+  OTHER // the source registration form only lists the first three; added as a catch-all so no real visitor is unrepresentable
+}
+
+enum ReferralSource {
+  MAP_CLASS
+  SOCIAL_MEDIA
+  FRIENDS_FAMILY
+  OTHER
+}
+
+enum CoachShiftStatus {
+  OPEN     // clocked in, not yet clocked out
+  PENDING  // clocked out (or edited), awaiting admin review
+  APPROVED // admin-approved, counts toward pay
+  REJECTED // admin-rejected, does not count toward pay
+}
+
 enum StudentStatus {
   ACTIVE
   REMOVED
@@ -69,8 +92,9 @@ model Venue {
   address   String?
   createdAt DateTime @default(now())
 
-  classes  Class[]
-  students Student[]
+  classes      Class[]
+  checkIns     CheckIn[]
+  coachShifts  CoachShift[]
 
   @@index([name])
 }
@@ -114,42 +138,51 @@ model Coach {
 
   assignments    ClassAssignment[]
   markedSessions AttendanceSession[]
+  shifts         CoachShift[] @relation("CoachShifts")
+  approvedShifts CoachShift[] @relation("ApprovedShifts")
 
   @@index([email])
 }
 
 model Student {
-  id            String        @id @default(cuid())
-  name          String
-  level         Level
-  venueId       String
-  venue         Venue         @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  guardianName  String?
-  guardianPhone String?
-  status        StudentStatus @default(ACTIVE)
-  registeredAt  DateTime      @default(now())
-  // A short, coach-assigned access code for the student's own read-only
-  // portal (their attendance + progress only — no write actions exist
-  // there). Deliberately plain text, not hashed: it functions as a shared
-  // "class code" rather than a password (MAP students span P1-Sec4, so as
-  // young as ~7), it protects only the student's own already-low-sensitivity
-  // view of data their coach already manages, and — unlike a bcrypt hash —
-  // it can still be looked up directly by value.
-  //
-  // No failedLoginAttempts/lockedUntil here (unlike Coach): that pattern
-  // needs a wrong guess to still identify *which account* to lock, which
-  // works for email+password (email finds the account, password is checked
-  // second) but not here — a wrong code matches no record at all, so
-  // there's nothing to increment. The code's own entropy (6 chars from a
-  // 32-symbol alphabet, ~1 billion combinations) is the defense instead,
-  // appropriate for a view-only, low-sensitivity account.
-  loginCode     String        @unique
+  id       String @id @default(cuid())
+  name     String
+  level    Level
 
-  enrollments           Enrollment[]
-  attendanceRecords     AttendanceRecord[]
-  guardianNotifications GuardianNotification[]
+  contactNumber String
+  schoolName    String
+  email         String
+  isMapStudent  Boolean @default(true)
 
-  @@index([venueId])
+  // Renamed from guardianName/guardianPhone to match what the registration
+  // form actually calls this field (Student Emergency Contact Name /
+  // relationship / number) — same person, more accurate names.
+  emergencyContactName         String
+  emergencyContactRelationship EmergencyContactRelationship
+  emergencyContactPhone        String
+
+  // "How do you know about Study Space?" — analytics only, nothing reads it.
+  // Simplification vs. the source form: no free-text elaboration when
+  // "Other" is picked, just the category.
+  referralSource ReferralSource?
+
+  status       StudentStatus @default(ACTIVE) // now a purely manual admin toggle — nothing auto-sets REMOVED anymore
+  registeredAt DateTime      @default(now())
+
+  // Entire credential for both the student portal login AND the QR payload
+  // (the QR literally encodes this string). Deliberately plain text, not
+  // hashed: it functions as a shared "class code" rather than a password
+  // (MAP students span P1-JC2, so as young as ~7), it protects only the
+  // student's own already-low-sensitivity view of data their coach already
+  // manages, and it needs to be looked up directly by value.
+  loginCode String @unique
+
+  enrollments           Enrollment[]           // unused going forward — see Global Constraints
+  attendanceRecords     AttendanceRecord[]      // unused going forward — see Global Constraints
+  guardianNotifications GuardianNotification[]  // old class-attendance flow, untouched — see Step 5
+  checkInNotifications  CheckInNotification[]
+  checkIns              CheckIn[]
+
   @@index([level])
 }
 
@@ -249,6 +282,87 @@ model GuardianNotification {
   // corrected session (after reopening) doesn't re-spam the same guardian.
   @@unique([studentId, classId, sessionDate])
   @@index([studentId])
+}
+
+model CheckIn {
+  id        String  @id @default(cuid())
+  studentId String
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  // Snapshot of the scanning coach's shift venue at check-in time — stored
+  // here (not just derived via coachShift.venueId) so a later edit to a
+  // shift's venue can never retroactively rewrite where a visit happened.
+  venueId String
+  venue   Venue  @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  // "YYYY-MM-DD" — same convention as every other date-only field in this
+  // schema, sidesteps timezone bugs.
+  checkInDate String
+  checkedInAt DateTime @default(now())
+
+  // Which coach and which of their shifts performed the scan — reached via
+  // this relation rather than a separate coachId field, since no scan
+  // happens without an open shift.
+  coachShiftId String
+  coachShift   CoachShift @relation(fields: [coachShiftId], references: [id], onDelete: Restrict)
+
+  notification CheckInNotification?
+
+  // Re-scanning the same person at the same venue the same day is a
+  // harmless no-op, not a duplicate or an error.
+  @@unique([studentId, venueId, checkInDate])
+  @@index([venueId, checkInDate])
+  @@index([coachShiftId])
+}
+
+model CheckInNotification {
+  // The check-in flow's equivalent of GuardianNotification, above — a
+  // separate model rather than a repoint of that one, since
+  // GuardianNotification's classId/sessionDate/status fields are still
+  // load-bearing for the untouched class-attendance flow. Same simulated
+  // "delivery record" reasoning as that model: no real SMS/email provider
+  // exists, this row IS the delivery.
+  id             String   @id @default(cuid())
+  studentId      String
+  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  checkInId      String   @unique
+  checkIn        CheckIn  @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+  // Snapshot of Student.emergencyContactPhone at send time.
+  recipientPhone String?
+  delivered      Boolean
+  message        String
+  sentAt         DateTime @default(now())
+}
+
+model CoachShift {
+  id      String @id @default(cuid())
+  coachId String
+  coach   Coach  @relation("CoachShifts", fields: [coachId], references: [id], onDelete: Restrict)
+  venueId String
+  venue   Venue  @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  // "YYYY-MM-DD", set once at clock-in and never independently edited —
+  // editing only ever corrects clockInAt/clockOutAt within that same day.
+  shiftDate String
+
+  clockInAt  DateTime
+  clockOutAt DateTime? // null while OPEN
+
+  status CoachShiftStatus @default(OPEN)
+
+  approvedByCoachId String?
+  approvedByCoach   Coach?    @relation("ApprovedShifts", fields: [approvedByCoachId], references: [id], onDelete: SetNull)
+  approvedAt        DateTime?
+  // Required by the action layer on reject; optional note on approve.
+  reviewNote        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  checkIns CheckIn[]
+
+  @@index([coachId])
+  @@index([venueId, shiftDate])
+  @@index([status])
 }
 
 model CurriculumTopic {

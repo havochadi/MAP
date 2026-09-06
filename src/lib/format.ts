@@ -1,4 +1,4 @@
-import type { Subject, Level, DayOfWeek } from "@/generated/prisma/client";
+import type { Subject, Level, DayOfWeek, EmergencyContactRelationship, ReferralSource } from "@/generated/prisma/client";
 
 const SUBJECT_LABELS: Record<Subject, string> = {
   ENGLISH: "English",
@@ -18,6 +18,8 @@ const LEVEL_LABELS: Record<Level, string> = {
   SEC3: "Sec 3",
   SEC4: "Sec 4",
   SEC5: "Sec 5",
+  JC1: "JC 1",
+  JC2: "JC 2",
 };
 
 const DAY_LABELS: Record<DayOfWeek, string> = {
@@ -28,6 +30,20 @@ const DAY_LABELS: Record<DayOfWeek, string> = {
   FRI: "Fri",
   SAT: "Sat",
   SUN: "Sun",
+};
+
+export const EMERGENCY_CONTACT_LABELS: Record<EmergencyContactRelationship, string> = {
+  MOTHER: "Mother",
+  FATHER: "Father",
+  GUARDIAN: "Guardian",
+  OTHER: "Other",
+};
+
+export const REFERRAL_SOURCE_LABELS: Record<ReferralSource, string> = {
+  MAP_CLASS: "A MAP class",
+  SOCIAL_MEDIA: "Social media",
+  FRIENDS_FAMILY: "Friends & family",
+  OTHER: "Other",
 };
 
 function formatTime12h(time24: string): string {

@@ -2,11 +2,14 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requireCoach } from "@/lib/session";
 import { getCoachProfile } from "@/data/coaches";
-import { formatClassLabel, getInitials } from "@/lib/format";
-import { formatDateForDisplay } from "@/lib/dates";
+import { getShiftHistoryForCoach } from "@/data/coach-shifts";
+import { computeShiftHours, computeShiftPay } from "@/lib/pay";
+import { getInitials } from "@/lib/format";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { buttonVariants } from "@/components/ui/button";
+import { ShiftHistory } from "@/components/coach/shift-history";
 
 export default async function CoachProfilePage({ params }: { params: Promise<{ coachId: string }> }) {
   const { coachId } = await params;
@@ -15,7 +18,12 @@ export default async function CoachProfilePage({ params }: { params: Promise<{ c
 
   const data = await getCoachProfile(coachId);
   if (!data) notFound();
-  const { coach, sessionsCount, studentCount } = data;
+  const { coach } = data;
+
+  const shifts = await getShiftHistoryForCoach(coachId);
+  const approvedShifts = shifts.filter((s) => s.status === "APPROVED");
+  const approvedHours = approvedShifts.reduce((sum, s) => sum + computeShiftHours(s), 0);
+  const approvedPay = approvedShifts.reduce((sum, s) => sum + computeShiftPay(s), 0);
 
   return (
     <div className="space-y-6">
@@ -33,55 +41,30 @@ export default async function CoachProfilePage({ params }: { params: Promise<{ c
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <Card>
           <CardContent className="text-center">
-            <p className="text-2xl font-semibold">{coach.assignments.length}</p>
-            <p className="text-xs text-muted-foreground">Classes</p>
+            <p className="text-2xl font-semibold">{approvedHours.toFixed(1)}</p>
+            <p className="text-xs text-muted-foreground">Approved hours</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="text-center">
-            <p className="text-2xl font-semibold">{studentCount}</p>
-            <p className="text-xs text-muted-foreground">Students</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="text-center">
-            <p className="text-2xl font-semibold">{sessionsCount}</p>
-            <p className="text-xs text-muted-foreground">Sessions taken</p>
+            <p className="text-2xl font-semibold">${approvedPay.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground">Approved pay</p>
           </CardContent>
         </Card>
       </div>
 
-      {coach.trainingCompletedAt && (
-        <p className="text-sm text-muted-foreground">
-          Training completed {formatDateForDisplay(coach.trainingCompletedAt.toISOString().slice(0, 10))}
-        </p>
+      {currentCoach.isAdmin && (
+        <Link href="/payroll" className={buttonVariants({ variant: "outline" })}>
+          Go to payroll
+        </Link>
       )}
 
       <div className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Classes</h2>
-        {coach.assignments.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Not assigned to any classes yet.</p>
-        ) : (
-          <ul className="divide-y rounded-lg border">
-            {coach.assignments.map((a) => (
-              <li key={a.id}>
-                <Link
-                  href={`/classes/${a.classId}`}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-muted/50"
-                >
-                  <div>
-                    <p className="text-sm font-medium">{formatClassLabel(a.class)}</p>
-                    <p className="text-xs text-muted-foreground">{a.class.venue.name}</p>
-                  </div>
-                  <span className="text-xs text-muted-foreground">{a.class._count.enrollments} students</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        <h2 className="text-sm font-medium text-muted-foreground">Shifts</h2>
+        <ShiftHistory shifts={shifts} canReopen={currentCoach.isAdmin} />
       </div>
     </div>
   );

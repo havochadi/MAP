@@ -67,6 +67,8 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: #1e3a5f;
+  --gradient-primary-start: #7C3AED;
+  --gradient-primary-end: #EC4899;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -102,6 +104,8 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: #4a73a0;
+  --gradient-primary-start: #7C3AED;
+  --gradient-primary-end: #EC4899;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

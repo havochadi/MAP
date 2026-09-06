@@ -20,7 +20,12 @@ export function RegistrationFlow({
   footer,
 }: {
   onSubmitAction: (input: unknown) => Promise<ActionResult<{ studentId: string; loginCode: string }>>;
-  footer?: (result: RegisteredResult) => ReactNode;
+  // Plain ReactNode, not a callback: a Server Component caller (every page
+  // that renders this) cannot pass a plain closure as a prop to this Client
+  // Component — only pre-rendered JSX or an actual Server Action crosses
+  // that boundary. Neither caller in this plan needs the registered
+  // student's data inside the footer anyway, so this loses nothing.
+  footer?: ReactNode;
 }) {
   const [result, setResult] = useState<RegisteredResult | null>(null);
   const [isMapStudent, setIsMapStudent] = useState(true);
@@ -51,7 +56,7 @@ export function RegistrationFlow({
     return (
       <div className="space-y-4">
         <QrDisplay name={result.name} loginCode={result.loginCode} qrDataUrl={result.qrDataUrl} />
-        {footer?.(result)}
+        {footer}
       </div>
     );
   }

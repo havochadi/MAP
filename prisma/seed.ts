@@ -1,11 +1,7 @@
-// Seed data for local demo/dev. Deliberately engineers a handful of students'
-// attendance history to exercise every rule described in the plan:
-//  - a student clearly below the 80% MAP disbursement threshold
-//  - a student with exactly 4 consecutive unexcused absences (2 short of removal)
-//  - a student with exactly 6 consecutive unexcused absences (removed)
-//  - a student whose streak is broken by one excused absence
-// and leaves one class's "today" session unmarked so the attendance screen has
-// a live, actionable empty state right after seeding.
+// Seed data for local demo/dev. Seeds a coach (farhan) with an OPEN shift at
+// Tampines Centre so a fresh login lands directly on the check-in desk, plus
+// shifts in every payroll state (PENDING/APPROVED/REJECTED) so the admin
+// payroll queue has something real to review immediately.
 import "dotenv/config";
 import { PrismaClient } from "../src/generated/prisma/client";
 import bcrypt from "bcryptjs";
@@ -20,11 +16,15 @@ const prisma = new PrismaClient();
 const DEMO_PASSWORD = "Coach123!";
 const today = getSingaporeTodayString();
 
-type LevelStr = "P1" | "P2" | "P3" | "P4" | "P5" | "P6" | "SEC1" | "SEC2" | "SEC3" | "SEC4" | "SEC5";
+type LevelStr =
+  | "P1" | "P2" | "P3" | "P4" | "P5" | "P6"
+  | "SEC1" | "SEC2" | "SEC3" | "SEC4" | "SEC5"
+  | "JC1" | "JC2";
 type SubjectStr = "ENGLISH" | "MATH" | "SCIENCE";
 type DayStr = "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
-type AttStatus = "PRESENT" | "ABSENT" | "LATE";
-type SessionRecord = { status: AttStatus; excused?: boolean };
+type RelationshipStr = "MOTHER" | "FATHER" | "GUARDIAN" | "OTHER";
+type ReferralStr = "MAP_CLASS" | "SOCIAL_MEDIA" | "FRIENDS_FAMILY" | "OTHER";
+type ShiftStatus = "OPEN" | "PENDING" | "APPROVED" | "REJECTED";
 
 // Excludes visually-ambiguous characters (0/O, 1/I) since a child reads this
 // off a card or hears it spoken by their coach.
@@ -43,82 +43,28 @@ function generateLoginCode(seed: number): string {
   return code;
 }
 
-function deriveGuardian(studentName: string, index: number) {
+function deriveEmergencyContact(studentName: string, index: number) {
   const match = studentName.match(/\bbin(?:te)?\s+(\S+)/i);
   const fatherFirstName = match ? match[1] : "Rahman";
-  const guardianName = `Encik ${fatherFirstName}`;
+  const emergencyContactName = `Encik ${fatherFirstName}`;
   const areaCode = 200 + (index % 30);
-  const suffix = (1000 + index * 111) % 9000 + 1000;
-  const guardianPhone = `9${areaCode} ${suffix}`;
-  return { guardianName, guardianPhone };
+  const suffix = ((1000 + index * 111) % 9000) + 1000;
+  const emergencyContactPhone = `9${areaCode} ${suffix}`;
+  return { emergencyContactName, emergencyContactPhone };
 }
 
-// A mostly-healthy 8-session pattern (oldest -> newest) that stays comfortably
-// above the 80% threshold even in the worst-case overlap of all three quirks.
-function healthyPattern(seedIndex: number): SessionRecord[] {
-  const pattern: SessionRecord[] = Array.from({ length: 8 }, () => ({ status: "PRESENT" }));
-  if (seedIndex % 4 === 0) pattern[3] = { status: "LATE" };
-  if (seedIndex % 5 === 0) pattern[1] = { status: "ABSENT" };
-  if (seedIndex % 7 === 0) pattern[5] = { status: "ABSENT", excused: true };
-  return pattern;
+// Singapore is a fixed UTC+8 with no DST — building the offset directly
+// avoids any dependence on the machine's local timezone.
+function toSingaporeDateTime(dateStr: string, time: string): Date {
+  return new Date(`${dateStr}T${time}:00+08:00`);
 }
-
-// oldest -> newest. 5/8 present, absences spread out (never consecutive) —
-// demonstrates the 80% flag firing independently of the streak flag.
-const BELOW_THRESHOLD_PATTERN: SessionRecord[] = [
-  { status: "PRESENT" },
-  { status: "ABSENT" },
-  { status: "PRESENT" },
-  { status: "ABSENT" },
-  { status: "PRESENT" },
-  { status: "ABSENT" },
-  { status: "PRESENT" },
-  { status: "PRESENT" },
-];
-
-// oldest -> newest. Most recent 4 sessions are unexcused absences.
-const FOUR_CONSECUTIVE_PATTERN: SessionRecord[] = [
-  { status: "PRESENT" },
-  { status: "PRESENT" },
-  { status: "PRESENT" },
-  { status: "PRESENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-];
-
-// oldest -> newest. Most recent 6 sessions are unexcused absences — triggers removal.
-const SIX_CONSECUTIVE_PATTERN: SessionRecord[] = [
-  { status: "PRESENT" },
-  { status: "PRESENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-];
-
-// oldest -> newest. Without the excused flag at index 4 this would be 6
-// consecutive (removal-triggering); with it, the streak resets there and the
-// trailing unexcused run is only 3.
-const EXCUSED_BREAKS_STREAK_PATTERN: SessionRecord[] = [
-  { status: "PRESENT" },
-  { status: "PRESENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT", excused: true },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-  { status: "ABSENT" },
-];
-
-const REGULAR_OFFSETS = [49, 42, 35, 28, 21, 14, 7, 0]; // oldest -> newest, most recent = today
-const TODAY_UNMARKED_OFFSETS = [56, 49, 42, 35, 28, 21, 14, 7]; // most recent = 7 days ago
 
 async function main() {
   console.log("Clearing existing data...");
+  await prisma.checkInNotification.deleteMany();
+  await prisma.checkIn.deleteMany();
+  await prisma.coachShift.deleteMany();
+  await prisma.guardianNotification.deleteMany();
   await prisma.classProgress.deleteMany();
   await prisma.attendanceRecord.deleteMany();
   await prisma.attendanceSession.deleteMany();
@@ -167,56 +113,25 @@ async function main() {
     });
   }
 
-  console.log("Creating classes...");
-  type ClassDef = {
-    key: string;
-    venueId: string;
-    subject: SubjectStr;
-    level: LevelStr;
-    dayOfWeek: DayStr;
-    startTime: string;
-  };
-  const classDefs: ClassDef[] = [
+  console.log("Creating a couple of legacy classes (unlinked from nav, kept non-destructively)...");
+  // Minimal — just enough that the still-existing /classes/* routes have
+  // something valid to show if visited directly. Nothing in the new
+  // coach-facing flow links here.
+  const classDefs: { key: string; venueId: string; subject: SubjectStr; level: LevelStr; dayOfWeek: DayStr; startTime: string }[] = [
     { key: "c0", venueId: tampines.id, subject: "SCIENCE", level: "P3", dayOfWeek: "MON", startTime: "16:00" },
-    { key: "c1", venueId: tampines.id, subject: "MATH", level: "P5", dayOfWeek: "MON", startTime: "17:30" },
-    { key: "c2", venueId: tampines.id, subject: "ENGLISH", level: "P6", dayOfWeek: "WED", startTime: "16:00" },
-    { key: "c3", venueId: woodlands.id, subject: "SCIENCE", level: "P5", dayOfWeek: "TUE", startTime: "16:00" },
-    { key: "c4", venueId: woodlands.id, subject: "MATH", level: "SEC1", dayOfWeek: "TUE", startTime: "17:30" },
-    { key: "c5", venueId: woodlands.id, subject: "SCIENCE", level: "SEC2", dayOfWeek: "THU", startTime: "16:00" },
-    { key: "c6", venueId: bedok.id, subject: "ENGLISH", level: "SEC3", dayOfWeek: "WED", startTime: "17:00" },
-    { key: "c7", venueId: bedok.id, subject: "MATH", level: "P2", dayOfWeek: "SAT", startTime: "10:00" },
+    { key: "c1", venueId: woodlands.id, subject: "MATH", level: "SEC1", dayOfWeek: "TUE", startTime: "17:30" },
   ];
   const classes: Record<string, Awaited<ReturnType<typeof prisma.class.create>>> = {};
   for (const def of classDefs) {
     classes[def.key] = await prisma.class.create({
-      data: {
-        venueId: def.venueId,
-        subject: def.subject,
-        level: def.level,
-        dayOfWeek: def.dayOfWeek,
-        startTime: def.startTime,
-      },
+      data: { venueId: def.venueId, subject: def.subject, level: def.level, dayOfWeek: def.dayOfWeek, startTime: def.startTime },
     });
   }
-
-  console.log("Assigning coaches to classes...");
-  const assignments: [keyof typeof coaches, keyof typeof classes][] = [
-    ["hidayah", "c0"],
-    ["farhan", "c0"],
-    ["aishah", "c1"],
-    ["danial", "c2"],
-    ["ain", "c3"],
-    ["haziq", "c4"],
-    ["nabila", "c5"],
-    ["farhan", "c6"],
-    ["ain", "c6"],
-    ["danial", "c7"],
-  ];
   await prisma.classAssignment.createMany({
-    data: assignments.map(([coachKey, classKey]) => ({
-      coachId: coaches[coachKey].id,
-      classId: classes[classKey].id,
-    })),
+    data: [
+      { coachId: coaches.farhan.id, classId: classes.c0.id },
+      { coachId: coaches.haziq.id, classId: classes.c1.id },
+    ],
   });
 
   console.log("Creating students...");
@@ -224,147 +139,157 @@ async function main() {
     key: string;
     name: string;
     level: LevelStr;
-    venueKey: "tampines" | "woodlands" | "bedok";
-    classKeys: string[]; // first = primary
-    pattern: "healthy" | "below80" | "four" | "six" | "excusedBreaks";
+    schoolName: string;
+    isMapStudent: boolean;
+    relationship: RelationshipStr;
+    referralSource: ReferralStr;
   };
-  const venuesByKey = { tampines, woodlands, bedok };
   const studentDefs: StudentDef[] = [
-    { key: "s1", name: "Amir Hafiz bin Zainal", level: "P3", venueKey: "tampines", classKeys: ["c0"], pattern: "healthy" },
-    { key: "s2", name: "Nur Aleesya binte Rosman", level: "P3", venueKey: "tampines", classKeys: ["c0"], pattern: "healthy" },
-    { key: "s3", name: "Muhammad Irfan bin Karim", level: "P3", venueKey: "tampines", classKeys: ["c0"], pattern: "healthy" },
-    { key: "s4", name: "Siti Zara binte Anuar", level: "P3", venueKey: "tampines", classKeys: ["c0"], pattern: "healthy" },
-
-    { key: "s5", name: "Nur Batrisyia binte Faizal", level: "P5", venueKey: "tampines", classKeys: ["c1", "c3", "c2"], pattern: "healthy" },
-    { key: "s6", name: "Muhammad Aiman bin Rahim", level: "P5", venueKey: "tampines", classKeys: ["c1", "c3"], pattern: "healthy" },
-    { key: "s7", name: "Aina Sofea binte Jamal", level: "P5", venueKey: "tampines", classKeys: ["c1"], pattern: "healthy" },
-    { key: "s8", name: "Muhammad Zharif bin Kassim", level: "P5", venueKey: "tampines", classKeys: ["c1"], pattern: "healthy" },
-    { key: "s9", name: "Nurul Iman binte Salleh", level: "P5", venueKey: "tampines", classKeys: ["c1"], pattern: "below80" },
-
-    { key: "s10", name: "Muhammad Rayyan bin Latif", level: "P6", venueKey: "tampines", classKeys: ["c2", "c1"], pattern: "healthy" },
-    { key: "s11", name: "Nur Damia binte Hakim", level: "P6", venueKey: "tampines", classKeys: ["c2"], pattern: "healthy" },
-    { key: "s12", name: "Ahmad Syafiq bin Nordin", level: "P6", venueKey: "tampines", classKeys: ["c2"], pattern: "healthy" },
-    { key: "s13", name: "Siti Maryam binte Ghani", level: "P6", venueKey: "tampines", classKeys: ["c2"], pattern: "healthy" },
-
-    { key: "s14", name: "Farid Danish bin Osman", level: "P5", venueKey: "woodlands", classKeys: ["c3", "c1"], pattern: "healthy" },
-    { key: "s15", name: "Nur Ellysa binte Tahir", level: "P5", venueKey: "woodlands", classKeys: ["c3"], pattern: "healthy" },
-    { key: "s16", name: "Aisyah Humaira binte Zulkarnain", level: "P5", venueKey: "woodlands", classKeys: ["c3"], pattern: "healthy" },
-    { key: "s17", name: "Muhammad Haziq bin Rosdi", level: "P5", venueKey: "woodlands", classKeys: ["c3"], pattern: "four" },
-
-    { key: "s18", name: "Muhd Amsyar bin Fadzil", level: "SEC1", venueKey: "woodlands", classKeys: ["c4", "c5", "c6"], pattern: "healthy" },
-    { key: "s19", name: "Nur Alysha binte Rusli", level: "SEC1", venueKey: "woodlands", classKeys: ["c4"], pattern: "healthy" },
-    { key: "s20", name: "Muhammad Danish bin Yaakob", level: "SEC1", venueKey: "woodlands", classKeys: ["c4"], pattern: "healthy" },
-    { key: "s21", name: "Nur Qistina binte Ibrahim", level: "SEC1", venueKey: "woodlands", classKeys: ["c4"], pattern: "six" },
-
-    { key: "s22", name: "Muhammad Haiqal bin Suhaili", level: "SEC2", venueKey: "woodlands", classKeys: ["c5", "c4"], pattern: "healthy" },
-    { key: "s23", name: "Nur Farzana binte Rashid", level: "SEC2", venueKey: "woodlands", classKeys: ["c5"], pattern: "healthy" },
-    { key: "s24", name: "Ahmad Zikri bin Hamzah", level: "SEC2", venueKey: "woodlands", classKeys: ["c5"], pattern: "excusedBreaks" },
-
-    { key: "s25", name: "Nur Adriana binte Shukor", level: "SEC3", venueKey: "bedok", classKeys: ["c6", "c5"], pattern: "healthy" },
-    { key: "s26", name: "Muhammad Firdaus bin Anwar", level: "SEC3", venueKey: "bedok", classKeys: ["c6"], pattern: "healthy" },
-    { key: "s27", name: "Siti Khadijah binte Rahim", level: "SEC3", venueKey: "bedok", classKeys: ["c6"], pattern: "healthy" },
-
-    { key: "s28", name: "Ahmad Zayyan bin Rizal", level: "P2", venueKey: "bedok", classKeys: ["c7", "c0"], pattern: "healthy" },
-    { key: "s29", name: "Nur Sarah binte Aziz", level: "P2", venueKey: "bedok", classKeys: ["c7"], pattern: "healthy" },
-    { key: "s30", name: "Muhammad Haris bin Johari", level: "P2", venueKey: "bedok", classKeys: ["c7"], pattern: "healthy" },
+    { key: "s1", name: "Amir Hafiz bin Zainal", level: "P3", schoolName: "Tampines Primary School", isMapStudent: true, relationship: "MOTHER", referralSource: "MAP_CLASS" },
+    { key: "s2", name: "Nur Aleesya binte Rosman", level: "P3", schoolName: "Tampines Primary School", isMapStudent: true, relationship: "FATHER", referralSource: "FRIENDS_FAMILY" },
+    { key: "s3", name: "Muhammad Irfan bin Karim", level: "P3", schoolName: "Tampines Primary School", isMapStudent: true, relationship: "GUARDIAN", referralSource: "SOCIAL_MEDIA" },
+    { key: "s4", name: "Siti Zara binte Anuar", level: "P3", schoolName: "Tampines Primary School", isMapStudent: true, relationship: "MOTHER", referralSource: "MAP_CLASS" },
+    { key: "s5", name: "Ahmad Zayyan bin Rizal", level: "P2", schoolName: "Bedok North Primary School", isMapStudent: true, relationship: "FATHER", referralSource: "OTHER" },
+    { key: "s6", name: "Nur Batrisyia binte Faizal", level: "P5", schoolName: "Tampines Primary School", isMapStudent: true, relationship: "MOTHER", referralSource: "FRIENDS_FAMILY" },
+    { key: "s7", name: "Muhammad Aiman bin Rahim", level: "P5", schoolName: "Woodlands Ring Primary School", isMapStudent: true, relationship: "GUARDIAN", referralSource: "MAP_CLASS" },
+    { key: "s8", name: "Nur Damia binte Hakim", level: "P6", schoolName: "Tampines North Primary School", isMapStudent: true, relationship: "MOTHER", referralSource: "SOCIAL_MEDIA" },
+    { key: "s9", name: "Muhd Amsyar bin Fadzil", level: "SEC1", schoolName: "Yishun Secondary School", isMapStudent: true, relationship: "FATHER", referralSource: "MAP_CLASS" },
+    { key: "s10", name: "Nur Alysha binte Rusli", level: "SEC2", schoolName: "Woodlands Secondary School", isMapStudent: true, relationship: "MOTHER", referralSource: "FRIENDS_FAMILY" },
+    { key: "s11", name: "Muhammad Haiqal bin Suhaili", level: "SEC3", schoolName: "Bedok View Secondary School", isMapStudent: true, relationship: "GUARDIAN", referralSource: "MAP_CLASS" },
+    { key: "s12", name: "Nur Adriana binte Shukor", level: "SEC3", schoolName: "Damai Secondary School", isMapStudent: true, relationship: "MOTHER", referralSource: "OTHER" },
+    { key: "s13", name: "Ahmad Danish bin Yaakob", level: "SEC4", schoolName: "Woodlands Ring Secondary School", isMapStudent: true, relationship: "FATHER", referralSource: "SOCIAL_MEDIA" },
+    { key: "s14", name: "Nurul Iman binte Salleh", level: "JC1", schoolName: "Tampines Junior College", isMapStudent: true, relationship: "MOTHER", referralSource: "MAP_CLASS" },
+    { key: "s15", name: "Farid Danish bin Osman", level: "P4", schoolName: "Woodlands Primary School", isMapStudent: false, relationship: "GUARDIAN", referralSource: "FRIENDS_FAMILY" },
+    { key: "s16", name: "Siti Khadijah binte Rahim", level: "SEC1", schoolName: "Bedok Green Secondary School", isMapStudent: false, relationship: "FATHER", referralSource: "OTHER" },
   ];
 
   const students: Record<string, Awaited<ReturnType<typeof prisma.student.create>>> = {};
   for (const [i, def] of studentDefs.entries()) {
-    const { guardianName, guardianPhone } = deriveGuardian(def.name, i);
+    const { emergencyContactName, emergencyContactPhone } = deriveEmergencyContact(def.name, i);
     students[def.key] = await prisma.student.create({
       data: {
         name: def.name,
         level: def.level,
-        venueId: venuesByKey[def.venueKey].id,
-        guardianName,
-        guardianPhone,
-        status: def.pattern === "six" ? "REMOVED" : "ACTIVE",
+        schoolName: def.schoolName,
+        contactNumber: `8${100 + i}${(200 + i * 3).toString().padStart(4, "0")}`.replace(/(\d{4})(\d{4})$/, "$1 $2"),
+        email: `${def.name.toLowerCase().replace(/[^a-z]+/g, ".")}@example.com`,
+        isMapStudent: def.isMapStudent,
+        emergencyContactName,
+        emergencyContactRelationship: def.relationship,
+        emergencyContactPhone,
+        referralSource: def.referralSource,
         loginCode: generateLoginCode(i),
       },
     });
   }
 
-  console.log("Creating enrollments...");
-  for (const def of studentDefs) {
-    for (const classKey of def.classKeys) {
-      await prisma.enrollment.create({
-        data: { studentId: students[def.key].id, classId: classes[classKey].id },
-      });
-    }
+  console.log("Creating coach shifts (every payroll status, so the admin queue has something to review)...");
+  type ShiftDef = {
+    coachKey: string;
+    venue: typeof tampines;
+    shiftDate: string;
+    clockInTime: string;
+    clockOutTime: string | null;
+    status: ShiftStatus;
+    reviewNote?: string;
+  };
+  const shiftDefs: ShiftDef[] = [
+    // farhan: OPEN today at Tampines — logging in as farhan lands directly
+    // on the check-in desk, camera-ready.
+    { coachKey: "farhan", venue: tampines, shiftDate: today, clockInTime: "16:00", clockOutTime: null, status: "OPEN" },
+    // farhan: two past approved shifts, so his profile shows real hours.
+    { coachKey: "farhan", venue: tampines, shiftDate: addDaysToDateString(today, -7), clockInTime: "16:00", clockOutTime: "19:30", status: "APPROVED" },
+    { coachKey: "farhan", venue: bedok, shiftDate: addDaysToDateString(today, -3), clockInTime: "17:00", clockOutTime: "20:00", status: "APPROVED" },
+    // aishah: clocked out yesterday, awaiting review.
+    { coachKey: "aishah", venue: woodlands, shiftDate: addDaysToDateString(today, -1), clockInTime: "16:00", clockOutTime: "18:45", status: "PENDING" },
+    // danial: already reviewed and approved.
+    { coachKey: "danial", venue: bedok, shiftDate: addDaysToDateString(today, -2), clockInTime: "17:00", clockOutTime: "20:15", status: "APPROVED" },
+    // ain: rejected, with a reason — demos the reject-with-reviewNote path.
+    {
+      coachKey: "ain",
+      venue: tampines,
+      shiftDate: addDaysToDateString(today, -4),
+      clockInTime: "16:00",
+      clockOutTime: "16:20",
+      status: "REJECTED",
+      reviewNote: "Clocked out after 20 minutes — check with Ain before re-approving.",
+    },
+    { coachKey: "haziq", venue: woodlands, shiftDate: addDaysToDateString(today, -6), clockInTime: "17:30", clockOutTime: "20:00", status: "APPROVED" },
+    { coachKey: "nabila", venue: woodlands, shiftDate: addDaysToDateString(today, -5), clockInTime: "16:00", clockOutTime: "18:00", status: "APPROVED" },
+  ];
+
+  const shifts: Record<string, Awaited<ReturnType<typeof prisma.coachShift.create>>> = {};
+  for (const [i, def] of shiftDefs.entries()) {
+    const clockInAt = toSingaporeDateTime(def.shiftDate, def.clockInTime);
+    const clockOutAt = def.clockOutTime ? toSingaporeDateTime(def.shiftDate, def.clockOutTime) : null;
+    const isReviewed = def.status === "APPROVED" || def.status === "REJECTED";
+    shifts[`shift${i}`] = await prisma.coachShift.create({
+      data: {
+        coachId: coaches[def.coachKey].id,
+        venueId: def.venue.id,
+        shiftDate: def.shiftDate,
+        clockInAt,
+        clockOutAt,
+        status: def.status,
+        approvedByCoachId: isReviewed ? coaches.hidayah.id : null,
+        approvedAt: isReviewed ? clockOutAt : null,
+        reviewNote: def.reviewNote ?? null,
+      },
+    });
   }
 
-  console.log("Creating attendance sessions and records...");
-  function patternFor(def: StudentDef, roleIndex: number): SessionRecord[] {
-    switch (def.pattern) {
-      case "below80":
-        return BELOW_THRESHOLD_PATTERN;
-      case "four":
-        return FOUR_CONSECUTIVE_PATTERN;
-      case "six":
-        return SIX_CONSECUTIVE_PATTERN;
-      case "excusedBreaks":
-        return EXCUSED_BREAKS_STREAK_PATTERN;
-      default:
-        return healthyPattern(roleIndex);
-    }
+  console.log("Creating check-ins...");
+  // The Tampines P3 crew, checked in today under farhan's open shift — so
+  // "checked in this shift" isn't zero the moment you log in.
+  for (const key of ["s1", "s2", "s3", "s4"]) {
+    await prisma.checkIn.create({
+      data: {
+        studentId: students[key].id,
+        venueId: tampines.id,
+        checkInDate: today,
+        checkedInAt: toSingaporeDateTime(today, "16:05"),
+        coachShiftId: shifts.shift0.id,
+      },
+    });
   }
 
-  let healthySeedCounter = 0;
-  for (const classDef of classDefs) {
-    const classId = classes[classDef.key].id;
-    const isTodayUnmarkedClass = classDef.key === "c0";
-    const offsets = isTodayUnmarkedClass ? TODAY_UNMARKED_OFFSETS : REGULAR_OFFSETS;
-
-    const rosterForClass = studentDefs.filter((s) => s.classKeys.includes(classDef.key));
-    const coachForSession = assignments.find(([, ck]) => ck === classDef.key)![0];
-
-    for (let sessionIdx = 0; sessionIdx < offsets.length; sessionIdx++) {
-      const sessionDate = addDaysToDateString(today, -offsets[sessionIdx]);
-      const session = await prisma.attendanceSession.create({
-        data: {
-          classId,
-          sessionDate,
-          markedByCoachId: coaches[coachForSession].id,
-          submittedAt: new Date(new Date(sessionDate).getTime() + 18 * 60 * 60 * 1000),
-        },
-      });
-
-      for (const studentDef of rosterForClass) {
-        const roleIndex = healthySeedCounter++;
-        const pattern = patternFor(studentDef, roleIndex);
-        const record = pattern[sessionIdx];
-        await prisma.attendanceRecord.create({
-          data: {
-            attendanceSessionId: session.id,
-            studentId: students[studentDef.key].id,
-            status: record.status,
-            excused: record.excused ?? false,
-          },
-        });
-      }
-    }
+  // A little check-in history under the past approved shifts, so student
+  // profile pages have real history to show.
+  const historyCheckIns: { studentKey: string; shiftKey: string; venue: typeof tampines; date: string; time: string }[] = [
+    { studentKey: "s1", shiftKey: "shift1", venue: tampines, date: addDaysToDateString(today, -7), time: "16:10" },
+    { studentKey: "s2", shiftKey: "shift1", venue: tampines, date: addDaysToDateString(today, -7), time: "16:12" },
+    { studentKey: "s6", shiftKey: "shift6", venue: woodlands, date: addDaysToDateString(today, -6), time: "17:40" },
+    { studentKey: "s7", shiftKey: "shift6", venue: woodlands, date: addDaysToDateString(today, -6), time: "17:45" },
+    { studentKey: "s9", shiftKey: "shift7", venue: woodlands, date: addDaysToDateString(today, -5), time: "16:05" },
+    { studentKey: "s11", shiftKey: "shift4", venue: bedok, date: addDaysToDateString(today, -2), time: "17:05" },
+  ];
+  for (const c of historyCheckIns) {
+    await prisma.checkIn.create({
+      data: {
+        studentId: students[c.studentKey].id,
+        venueId: c.venue.id,
+        checkInDate: c.date,
+        checkedInAt: toSingaporeDateTime(c.date, c.time),
+        coachShiftId: shifts[c.shiftKey].id,
+      },
+    });
   }
 
   console.log("Creating curriculum topics (full P1-Sec4 syllabus, English/Math; P3-Sec4, Science)...");
-  // Full real-syllabus coverage, researched separately per subject — see
-  // prisma/curriculum-data/{math,english,science}.ts for sources and the
-  // per-file scoping notes (e.g. Science has no P1/P2 content because MOE
-  // doesn't teach it before P3; Math covers E-Math only, not elective A-Math;
-  // Sec3-4 Science is framed as Combined Science with Physics/Chemistry/
-  // Biology as strand labels, since this app has one SCIENCE subject).
+  // Unchanged from before — /curriculum is independent of Class/Student and
+  // needs no changes for this feature.
   const allCurricula: { subject: SubjectStr; levels: LevelCurriculum[] }[] = [
     { subject: "MATH", levels: mathCurriculum },
     { subject: "ENGLISH", levels: englishCurriculum },
     { subject: "SCIENCE", levels: scienceCurriculum },
   ];
 
-  const topicsBySubjectLevel: Record<string, Awaited<ReturnType<typeof prisma.curriculumTopic.create>>[]> = {};
+  let totalTopics = 0;
+  let totalCombos = 0;
   for (const { subject, levels } of allCurricula) {
     for (const levelCurriculum of levels) {
-      const created = [];
       for (const [i, t] of levelCurriculum.topics.entries()) {
-        const topic = await prisma.curriculumTopic.create({
+        await prisma.curriculumTopic.create({
           data: {
             subject,
             level: levelCurriculum.level,
@@ -378,59 +303,9 @@ async function main() {
             diagramSpec: t.diagram ? JSON.stringify(t.diagram) : null,
           },
         });
-        created.push(topic);
+        totalTopics++;
       }
-      topicsBySubjectLevel[`${subject}-${levelCurriculum.level}`] = created;
-    }
-  }
-
-  // The 8 demo classes only span 8 of the 28 seeded subject+level combos —
-  // this just looks up each class's slice of the full syllabus above so the
-  // ClassProgress step below still has something to attach to.
-  const topicsByClassKey: Record<string, Awaited<ReturnType<typeof prisma.curriculumTopic.create>>[]> = {};
-  for (const classDef of classDefs) {
-    topicsByClassKey[classDef.key] = topicsBySubjectLevel[`${classDef.subject}-${classDef.level}`] ?? [];
-  }
-
-  console.log("Creating class progress...");
-  for (const classDef of classDefs) {
-    const topics = topicsByClassKey[classDef.key];
-    const isDueTodayClass = classDef.key === "c0";
-    const completedCount = Math.ceil(topics.length * 0.5);
-
-    for (const [i, topic] of topics.entries()) {
-      if (i < completedCount) {
-        const completedDate = addDaysToDateString(today, -7 * (completedCount - i));
-        await prisma.classProgress.create({
-          data: {
-            classId: classes[classDef.key].id,
-            curriculumTopicId: topic.id,
-            status: "COMPLETED",
-            plannedDate: completedDate,
-            completedDate,
-            notes: null,
-          },
-        });
-      } else if (i === completedCount && isDueTodayClass) {
-        await prisma.classProgress.create({
-          data: {
-            classId: classes[classDef.key].id,
-            curriculumTopicId: topic.id,
-            status: "PLANNED",
-            plannedDate: today,
-          },
-        });
-      } else {
-        const weeksAhead = i - completedCount + (isDueTodayClass ? 1 : 0);
-        await prisma.classProgress.create({
-          data: {
-            classId: classes[classDef.key].id,
-            curriculumTopicId: topic.id,
-            status: "PLANNED",
-            plannedDate: addDaysToDateString(today, 7 * Math.max(weeksAhead, 1)),
-          },
-        });
-      }
+      totalCombos++;
     }
   }
 
@@ -440,16 +315,16 @@ async function main() {
   for (const def of coachDefs) {
     console.log(`  ${def.email}${def.isAdmin ? "  (admin)" : ""}`);
   }
-  console.log("\nTampines Centre / P3 Science (class c0) has no attendance session for today yet —");
-  console.log("log in as farhan@map.test to take it live, and see today's curriculum topic due.");
-  const totalTopics = Object.values(topicsBySubjectLevel).reduce((sum, t) => sum + t.length, 0);
-  console.log(`\nCurriculum guide: ${totalTopics} topics across ${Object.keys(topicsBySubjectLevel).length} subject/level combinations (Math & English P1-Sec4, Science P3-Sec4).`);
+  console.log("\nfarhan@map.test is clocked in at Tampines Centre with 4 students already checked in today —");
+  console.log("log in as farhan to see the check-in desk live. admin@map.test has a pending shift (aishah's)");
+  console.log("waiting for review at /payroll.");
+  console.log(`\nCurriculum guide: ${totalTopics} topics across ${totalCombos} subject/level combinations (Math & English P1-Sec4, Science P3-Sec4).`);
 
-  console.log("\nStudent portal — sign in with just a login code, no password:");
+  console.log("\nStudent QR/portal login codes (sign in at /login's Student tab, or scan the QR from their profile):");
   for (const def of studentDefs.slice(0, 5)) {
     console.log(`  ${def.name}: ${students[def.key].loginCode}`);
   }
-  console.log(`  ...and ${studentDefs.length - 5} more (every student has one; check /students as admin to look any of them up).`);
+  console.log(`  ...and ${studentDefs.length - 5} more (every student has one; look any of them up at /students as admin).`);
 }
 
 main()

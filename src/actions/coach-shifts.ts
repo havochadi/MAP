@@ -59,12 +59,15 @@ export async function editShift(input: unknown): Promise<ActionResult> {
     return { success: false, error: "Reopen this shift before editing it." };
   }
 
+  const clockInAt = new Date(parsed.data.clockInAt);
+  const clockOutAt = parsed.data.clockOutAt ? new Date(parsed.data.clockOutAt) : null;
+  if (clockOutAt && clockOutAt <= clockInAt) {
+    return { success: false, error: "Clock out must be after clock in." };
+  }
+
   await prisma.coachShift.update({
     where: { id: shift.id },
-    data: {
-      clockInAt: new Date(parsed.data.clockInAt),
-      clockOutAt: parsed.data.clockOutAt ? new Date(parsed.data.clockOutAt) : null,
-    },
+    data: { clockInAt, clockOutAt },
   });
 
   revalidatePath(`/coaches/${shift.coachId}`);

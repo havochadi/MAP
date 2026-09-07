@@ -6,6 +6,7 @@ import { generateUniqueLoginCode } from "@/lib/login-code";
 import { registerStudentSchema } from "@/validations/registration";
 import { requireCoach } from "@/lib/session";
 import { getSingaporeTodayString } from "@/lib/dates";
+import { sendGuardianCheckInNotification } from "@/lib/notifications";
 
 export type ActionResult<T = undefined> = { success: true; data: T } | { success: false; error: string };
 
@@ -45,7 +46,7 @@ export async function registerAndCheckInStudent(
     data: { ...parsed.data, loginCode },
   });
 
-  await prisma.checkIn.create({
+  const checkIn = await prisma.checkIn.create({
     data: {
       studentId: student.id,
       venueId: shift.venueId,
@@ -53,6 +54,10 @@ export async function registerAndCheckInStudent(
       coachShiftId: shift.id,
     },
   });
+
+  if (student.isMapStudent) {
+    await sendGuardianCheckInNotification({ checkInId: checkIn.id });
+  }
 
   revalidatePath("/students");
   revalidatePath("/");

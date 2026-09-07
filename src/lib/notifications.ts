@@ -33,7 +33,13 @@ export async function sendGuardianAttendanceNotification(input: {
   if (!student) throw new Error("Student not found.");
   if (!cls) throw new Error("Class not found.");
 
-  const delivered = student.guardianPhone != null;
+  // Reads emergencyContactPhone, not the old guardianPhone name — Task 1's
+  // Student model rename left this legacy function referencing a field that
+  // no longer exists. Pure rename, no behavior change: same person, same
+  // data, just the column Task 1 renamed it to. (It's now a required field,
+  // so `delivered` is always true post-rename — left as a computed check
+  // rather than hardcoding `true`, to keep this function's diff minimal.)
+  const delivered = student.emergencyContactPhone != null;
   const message = buildGuardianMessage({
     studentName: student.name,
     classLabel: formatClassLabel(cls),
@@ -42,24 +48,63 @@ export async function sendGuardianAttendanceNotification(input: {
   });
 
   if (delivered) {
-    console.log(`[guardian-notify] SMS to ${student.guardianPhone}: ${message}`);
+    console.log(`[guardian-notify] SMS to ${student.emergencyContactPhone}: ${message}`);
   }
 
   await prisma.guardianNotification.upsert({
     where: {
       studentId_classId_sessionDate: { studentId: input.studentId, classId: input.classId, sessionDate: input.sessionDate },
     },
-    update: { status: input.status, recipientPhone: student.guardianPhone, delivered, message, sentAt: new Date() },
+    update: { status: input.status, recipientPhone: student.emergencyContactPhone, delivered, message, sentAt: new Date() },
     create: {
       studentId: input.studentId,
       classId: input.classId,
       sessionDate: input.sessionDate,
       status: input.status,
-      recipientPhone: student.guardianPhone,
+      recipientPhone: student.emergencyContactPhone,
       delivered,
       message,
     },
   });
 
   return { delivered };
+}
+
+export function buildGuardianCheckInMessage(input: { studentName: string; venueName: string; checkInDate: string }): string {
+  return `${input.studentName} has checked in at ${input.venueName} on ${formatDateForDisplay(input.checkInDate)}.`;
+}
+
+// The check-in flow's equivalent of sendGuardianAttendanceNotification,
+// above — same simulated-send reasoning, writing to CheckInNotification
+// instead of GuardianNotification since this is triggered by a CheckIn, not
+// a class attendance session. Only ever called for isMapStudent students
+// (see the call site in src/actions/checkins.ts), and Student.emergencyContactPhone
+// is a required field, so "delivered" is always true here — unlike the
+// class-attendance version, there's no optional-phone branch to handle.
+export async function sendGuardianCheckInNotification(input: { checkInId: string }): Promise<{ delivered: boolean }> {
+  const checkIn = await prisma.checkIn.findUnique({
+    where: { id: input.checkInId },
+    include: { student: true, venue: true },
+  });
+  if (!checkIn) throw new Error("Check-in not found.");
+
+  const message = buildGuardianCheckInMessage({
+    studentName: checkIn.student.name,
+    venueName: checkIn.venue.name,
+    checkInDate: checkIn.checkInDate,
+  });
+
+  console.log(`[guardian-notify] SMS to ${checkIn.student.emergencyContactPhone}: ${message}`);
+
+  await prisma.checkInNotification.create({
+    data: {
+      studentId: checkIn.studentId,
+      checkInId: checkIn.id,
+      recipientPhone: checkIn.student.emergencyContactPhone,
+      delivered: true,
+      message,
+    },
+  });
+
+  return { delivered: true };
 }

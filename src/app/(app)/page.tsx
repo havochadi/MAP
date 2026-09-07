@@ -1,7 +1,9 @@
 import { requireCoach } from "@/lib/session";
 import { getOpenShiftForCoach } from "@/data/coach-shifts";
+import { getCheckInCountForShift } from "@/data/checkins";
 import { getAllVenues } from "@/data/venues";
 import { ClockInForm } from "@/components/checkin/clock-in-form";
+import { CheckInDesk } from "@/components/checkin/check-in-desk";
 
 export default async function DashboardPage() {
   const coach = await requireCoach();
@@ -12,7 +14,6 @@ export default async function DashboardPage() {
     return <ClockInForm venues={venues} />;
   }
 
-  // Task 15 replaces this placeholder with the real CheckInDesk (scanner,
-  // manual code fallback, running count, clock-out, register-new-visitor).
-  return <p>Clocked in at {openShift.venue.name}. Check-in desk coming in Task 15.</p>;
+  const count = await getCheckInCountForShift(openShift.id);
+  return <CheckInDesk shift={openShift} initialCount={count} />;
 }

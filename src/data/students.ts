@@ -1,39 +1,25 @@
 import { prisma } from "@/lib/prisma";
 
 export async function getStudentProfile(studentId: string) {
-  const student = await prisma.student.findUnique({
-    where: { id: studentId },
-    include: {
-      venue: true,
-      enrollments: {
-        where: { status: "ACTIVE" },
-        include: { class: { include: { venue: true } } },
-      },
-    },
-  });
+  const student = await prisma.student.findUnique({ where: { id: studentId } });
   if (!student) return null;
 
-  const records = await prisma.attendanceRecord.findMany({
+  const checkIns = await prisma.checkIn.findMany({
     where: { studentId },
-    include: { session: true },
-    orderBy: { session: { sessionDate: "desc" } },
+    include: { venue: true },
+    orderBy: { checkInDate: "desc" },
   });
 
-  return { student, records };
+  return { student, checkIns };
 }
 
 export async function getStudentsForCoach(coachId: string, isAdmin: boolean) {
   if (isAdmin) {
-    return prisma.student.findMany({ include: { venue: true }, orderBy: { name: "asc" } });
+    return prisma.student.findMany({ orderBy: { name: "asc" } });
   }
 
   return prisma.student.findMany({
-    where: {
-      enrollments: {
-        some: { status: "ACTIVE", class: { assignments: { some: { coachId } } } },
-      },
-    },
-    include: { venue: true },
+    where: { enrollments: { some: { status: "ACTIVE", class: { assignments: { some: { coachId } } } } } },
     orderBy: { name: "asc" },
   });
 }

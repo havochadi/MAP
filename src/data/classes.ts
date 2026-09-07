@@ -60,7 +60,7 @@ export async function getAllClassesForSelect() {
 
 export async function getAllVenuesWithClassCounts() {
   return prisma.venue.findMany({
-    include: { _count: { select: { classes: true, students: true } } },
+    include: { _count: { select: { classes: true, checkIns: true } } },
     orderBy: { name: "asc" },
   });
 }

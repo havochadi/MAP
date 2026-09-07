@@ -31,7 +31,7 @@ export default async function VenuesPage() {
                   <p className="font-medium">{venue.name}</p>
                   {venue.address && <p className="text-sm text-muted-foreground">{venue.address}</p>}
                   <p className="mt-2 text-xs text-muted-foreground">
-                    {venue._count.classes} classes · {venue._count.students} students
+                    {venue._count.classes} classes · {venue._count.checkIns} check-ins
                   </p>
                 </CardContent>
               </Card>

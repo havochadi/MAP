@@ -1,14 +1,18 @@
-// Pure functions — no I/O — computing coach pay from shift timestamps.
+// Pure functions — no I/O — computing coach pay from a shift's fixed block.
 // Hours and pay are always computed on read, never stored, same philosophy
-// as src/lib/attendance-stats.ts computing attendance percentages.
+// as src/lib/attendance-stats.ts computing attendance percentages. Pay is
+// flat per block (see src/lib/shift-blocks.ts), not prorated from actual
+// clock-in/out timestamps — those are attendance records only.
+
+import { SHIFT_BLOCKS, type ShiftBlockKey } from "@/lib/shift-blocks";
 
 export const HOURLY_RATE = 80;
 
-export type PayShiftLike = { clockInAt: Date; clockOutAt: Date | null };
+export type PayShiftLike = { shiftBlock: ShiftBlockKey; clockOutAt: Date | null };
 
 export function computeShiftHours(shift: PayShiftLike): number {
   if (!shift.clockOutAt) return 0;
-  return (shift.clockOutAt.getTime() - shift.clockInAt.getTime()) / 3_600_000;
+  return SHIFT_BLOCKS[shift.shiftBlock].hours;
 }
 
 export function computeShiftPay(shift: PayShiftLike): number {

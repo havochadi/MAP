@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { SHIFT_BLOCK_KEYS } from "@/lib/shift-blocks";
 
 export const clockInSchema = z.object({
   venueId: z.string().min(1),
+  shiftBlock: z.enum(SHIFT_BLOCK_KEYS),
 });
 
 export const clockOutSchema = z.object({

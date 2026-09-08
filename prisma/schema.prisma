@@ -75,6 +75,16 @@ enum CoachShiftStatus {
   REJECTED // admin-rejected, does not count toward pay
 }
 
+// Coaching runs in fixed scheduled sessions, never freeform hours — see
+// src/lib/shift-blocks.ts for each block's day(s), time window, and paid
+// hours. Pay is flat per block (src/lib/pay.ts), not prorated from actual
+// clock-in/out — those timestamps are kept purely as an attendance record.
+enum ShiftBlock {
+  WEEKDAY_EVENING   // Tue & Thu, 5:00–9:00 PM (4h)
+  WEEKEND_MORNING   // Sat & Sun, 10:00 AM–2:00 PM (4h)
+  WEEKEND_AFTERNOON // Sat & Sun, 2:00–5:00 PM (3h)
+}
+
 enum StudentStatus {
   ACTIVE
   REMOVED
@@ -343,9 +353,14 @@ model CoachShift {
   // "YYYY-MM-DD", set once at clock-in and never independently edited —
   // editing only ever corrects clockInAt/clockOutAt within that same day.
   shiftDate String
+  // Chosen at clock-in, never independently edited — same rationale as
+  // shiftDate (a wrong pick has no in-place fix; reject and re-log it).
+  // Determines paid hours; clockInAt/clockOutAt below no longer do.
+  shiftBlock ShiftBlock
 
   clockInAt  DateTime
-  clockOutAt DateTime? // null while OPEN
+  clockOutAt DateTime? // null while OPEN — real arrival/departure, kept for
+  // attendance only; see shiftBlock for what actually drives pay.
 
   status CoachShiftStatus @default(OPEN)
 

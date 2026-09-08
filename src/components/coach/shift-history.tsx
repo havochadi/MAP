@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { reopenShift } from "@/actions/coach-shifts";
 import { computeShiftHours, computeShiftPay } from "@/lib/pay";
 import { formatDateForDisplay } from "@/lib/dates";
+import { SHIFT_BLOCKS, type ShiftBlockKey } from "@/lib/shift-blocks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EditShiftDialog } from "@/components/coach/edit-shift-dialog";
@@ -14,6 +15,7 @@ type Shift = {
   id: string;
   venue: { name: string };
   shiftDate: string;
+  shiftBlock: ShiftBlockKey;
   clockInAt: Date;
   clockOutAt: Date | null;
   status: "OPEN" | "PENDING" | "APPROVED" | "REJECTED";
@@ -56,7 +58,8 @@ export function ShiftHistory({ shifts, canReopen }: { shifts: Shift[]; canReopen
               {shift.venue.name} · {formatDateForDisplay(shift.shiftDate)}
             </p>
             <p className="text-xs text-muted-foreground">
-              {computeShiftHours(shift).toFixed(2)}h · ${computeShiftPay(shift).toFixed(2)}
+              {SHIFT_BLOCKS[shift.shiftBlock].label} · {computeShiftHours(shift).toFixed(2)}h · $
+              {computeShiftPay(shift).toFixed(2)}
               {shift.reviewNote && ` · ${shift.reviewNote}`}
             </p>
           </div>

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { approveShift, rejectShift } from "@/actions/coach-shifts";
 import { computeShiftHours, computeShiftPay } from "@/lib/pay";
 import { formatDateForDisplay } from "@/lib/dates";
+import { SHIFT_BLOCKS, type ShiftBlockKey } from "@/lib/shift-blocks";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +19,7 @@ type Shift = {
   coach: { name: string };
   venue: { name: string };
   shiftDate: string;
+  shiftBlock: ShiftBlockKey;
   clockInAt: Date;
   clockOutAt: Date | null;
 };
@@ -49,6 +51,7 @@ export function PendingShiftsTable({ shifts }: { shifts: Shift[] }) {
           <TableHead>Coach</TableHead>
           <TableHead>Venue</TableHead>
           <TableHead>Date</TableHead>
+          <TableHead>Session</TableHead>
           <TableHead>Hours</TableHead>
           <TableHead>Pay</TableHead>
           <TableHead className="text-right">Actions</TableHead>
@@ -60,6 +63,7 @@ export function PendingShiftsTable({ shifts }: { shifts: Shift[] }) {
             <TableCell>{shift.coach.name}</TableCell>
             <TableCell>{shift.venue.name}</TableCell>
             <TableCell>{formatDateForDisplay(shift.shiftDate)}</TableCell>
+            <TableCell>{SHIFT_BLOCKS[shift.shiftBlock].label}</TableCell>
             <TableCell>{computeShiftHours(shift).toFixed(2)}</TableCell>
             <TableCell>${computeShiftPay(shift).toFixed(2)}</TableCell>
             <TableCell>

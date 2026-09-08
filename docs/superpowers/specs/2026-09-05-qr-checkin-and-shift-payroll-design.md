@@ -227,21 +227,45 @@ send mechanism as today (`src/lib/notifications.ts`, `POST /api/notify-guardian`
 SMS/email provider, logged + recorded as a row, same reasoning as before (no messaging infra
 exists, none is being added).
 
-Pay is computed, never stored, same philosophy as `src/lib/attendance-stats.ts`:
+**Superseded by a post-launch amendment (2026-09-08):** coaching doesn't happen in freeform
+hours — it runs in fixed, named sessions: **Tue & Thu evening** (5:00–9:00 PM, 4h), and on
+**Sat/Sun** two sessions, **morning** (10:00 AM–2:00 PM, 4h) and **afternoon** (2:00–5:00 PM, 3h).
+A coach picks one of these at clock-in (alongside the venue, same self-serve pattern) instead of
+just tapping in; `clockInAt`/`clockOutAt` still record real arrival/departure for attendance, but
+pay is computed, never stored, from the **selected block's fixed duration** — not from those
+timestamps:
 
 ```ts
+// src/lib/shift-blocks.ts
+export const SHIFT_BLOCKS: Record<ShiftBlockKey, { label: string; days: DayOfWeek[]; startTime: string; endTime: string; hours: number }> = {
+  WEEKDAY_EVENING:   { label: "Evening (5:00–9:00 PM)",     days: ["TUE", "THU"], startTime: "17:00", endTime: "21:00", hours: 4 },
+  WEEKEND_MORNING:   { label: "Morning (10:00 AM–2:00 PM)", days: ["SAT", "SUN"], startTime: "10:00", endTime: "14:00", hours: 4 },
+  WEEKEND_AFTERNOON: { label: "Afternoon (2:00–5:00 PM)",   days: ["SAT", "SUN"], startTime: "14:00", endTime: "17:00", hours: 3 },
+};
+
 // src/lib/pay.ts
 export const HOURLY_RATE = 80;
 
-export function computeShiftHours(shift: { clockInAt: Date; clockOutAt: Date | null }): number {
+export function computeShiftHours(shift: { shiftBlock: ShiftBlockKey; clockOutAt: Date | null }): number {
   if (!shift.clockOutAt) return 0;
-  return (shift.clockOutAt.getTime() - shift.clockInAt.getTime()) / 3_600_000;
+  return SHIFT_BLOCKS[shift.shiftBlock].hours;
 }
 
 export function computeShiftPay(shift: Parameters<typeof computeShiftHours>[0]): number {
   return computeShiftHours(shift) * HOURLY_RATE;
 }
 ```
+
+Not prorated: a coach who clocks in 10 minutes late or leaves 15 minutes early within a block
+still gets paid that block's full fixed hours — attendance concerns like that are what the
+reject-with-reason payroll-review path is for, not the pay math. `CoachShift.shiftBlock` is set
+once at clock-in and — like `shiftDate` — never independently edited; a wrong pick has no in-place
+fix, reject and re-log it. The Home clock-in gate only ever offers the block(s) valid for *today's*
+day of week (so Mon/Wed/Fri show a "no session today" state instead of a clock-in form), re-checked
+server-side in the `clockIn` action itself, not just trusted from the picker.
+
+(The original text below described hours computed directly from `clockInAt`/`clockOutAt` with no
+rounding — kept for history, but superseded by the above.)
 
 No rounding — hours are exact to the minute.
 
@@ -287,8 +311,10 @@ both MAP and non-MAP students, same as the spec this supersedes.
 
 `src/app/(app)/page.tsx` (Home) becomes shift-gated:
 
-- **No open shift** → a **Clock In** screen: pick a venue, tap in. Creates an `OPEN` `CoachShift`
-  with `clockInAt = now`.
+- **No open shift** → a **Clock In** screen: pick today's session (see the fixed-block amendment
+  above — only valid for today's day of week) and a venue, tap in. Creates an `OPEN` `CoachShift`
+  with `clockInAt = now`. On a day with no scheduled session (Mon/Wed/Fri), this screen doesn't
+  appear at all — a "no session today" message does instead.
 - **Open shift** → the **check-in desk**:
   - Header: "Clocked in at `<venue>` since `<time>`" + a **Clock Out** button (sets `clockOutAt`,
     flips status to `PENDING`).

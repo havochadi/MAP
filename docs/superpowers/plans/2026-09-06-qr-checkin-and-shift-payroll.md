@@ -3656,7 +3656,50 @@ This task produces no file changes, so there's nothing to commit. If any step ab
 
 ---
 
+## Task 19: Fixed shift blocks and non-prorated pay (post-launch amendment, 2026-09-08)
+
+**Why:** Task 18's manual walkthrough surfaced that the real-world premise behind Tasks 4/8/9/11 was wrong — MENDAKI coaching doesn't happen in freeform clock-in/out hours. It runs in fixed, named sessions: **Tue & Thu evening** (5:00–9:00 PM, 4h), and on **Sat/Sun** two sessions, **morning** (10:00 AM–2:00 PM, 4h) and **afternoon** (2:00–5:00 PM, 3h). Pay is flat per block, not prorated from actual arrival/departure — see the design spec's superseded-section note for the full reasoning.
+
+**Files:**
+- Modify: `prisma/schema.prisma` (new `ShiftBlock` enum, `CoachShift.shiftBlock` field)
+- Create: `src/lib/shift-blocks.ts`
+- Modify: `src/lib/dates.ts` (`getDayOfWeek`), `src/lib/pay.ts` (hours from block, not timestamps)
+- Modify: `src/validations/coach-shift.ts`, `src/actions/coach-shifts.ts` (`clockIn` takes + validates `shiftBlock`, re-checked server-side against today's day of week)
+- Modify: `src/app/(app)/page.tsx` (day-gated: no valid block today → "no session" message instead of the clock-in form), `src/components/checkin/clock-in-form.tsx` (session picker alongside venue), `src/components/checkin/check-in-desk.tsx` (shows the block label)
+- Modify: `src/components/payroll/pending-shifts-table.tsx`, `src/components/coach/shift-history.tsx`, `src/app/api/payroll/export/route.ts` (all show/export the block's label; hours now come from it, not the clock diff)
+- Modify: `prisma/seed.ts` — every seeded `CoachShift` now lands on a real valid session date instead of an arbitrary "N days ago", computed dynamically (`recentSessionDates`) so the seed stays correct no matter what real day it's run on; farhan's "current" demo shift is `OPEN` today only when today actually has a session, `PENDING` on the most recent past session otherwise.
+- Modify: `docs/superpowers/specs/2026-09-05-qr-checkin-and-shift-payroll-design.md` — pay/coach-flow sections annotated as superseded by this task, original text kept for history.
+
+**Interfaces:** `SHIFT_BLOCK_KEYS`, `ShiftBlockKey`, `SHIFT_BLOCKS`, `blocksForDay(day)` from `src/lib/shift-blocks.ts`. `getDayOfWeek(dateStr)` from `src/lib/dates.ts`. `computeShiftHours`/`computeShiftPay` now take `{ shiftBlock, clockOutAt }` instead of `{ clockInAt, clockOutAt }`.
+
+**Not changed:** `shiftBlock`, like `shiftDate`, is set once at clock-in and never independently editable — `EditShiftDialog` still only edits `clockInAt`/`clockOutAt` (real arrival/departure), matching the existing "wrong-day shift has no in-place fix, reject and re-log it" convention. `HOURLY_RATE` stays the hardcoded `$80` constant.
+
+- [ ] **Verify:** `npx tsc --noEmit` and `npm run lint` both zero-error; a throwaway `node:assert` script (same pattern as Task 4, deleted after) confirmed `computeShiftHours`/`computeShiftPay`/`blocksForDay` for all three blocks including the 3h/4h distinction and day-gating (`MON`/`WED`/`FRI` → no blocks). `npx prisma migrate dev` (against a freshly-deleted empty `dev.db`, so no destructive-reset consent needed) applied cleanly and reseeded. Manually walked: clock-in on a Tue shows only the Evening session pre-selected; clocking in and immediately out (real elapsed time ~1 minute) still paid the full flat $320 for the 4h block, confirmed on both `/payroll`'s pending table and the coach's own profile; a coach's approved history mixing a 4h and a 3h block summed correctly (7.00h / $560.00) in both the per-shift rows and the aggregated pay summary; an `OPEN` shift correctly shows 0h/$0 until clocked out.
+
+- [ ] **Commit:**
+
+```bash
+git add prisma/schema.prisma prisma/migrations prisma/seed.ts src/lib/shift-blocks.ts src/lib/dates.ts src/lib/pay.ts src/validations/coach-shift.ts src/actions/coach-shifts.ts "src/app/(app)/page.tsx" src/components/checkin/clock-in-form.tsx src/components/checkin/check-in-desk.tsx src/components/payroll/pending-shifts-table.tsx src/components/coach/shift-history.tsx src/app/api/payroll/export/route.ts docs/superpowers/specs/2026-09-05-qr-checkin-and-shift-payroll-design.md docs/superpowers/plans/2026-09-06-qr-checkin-and-shift-payroll.md
+git commit -m "$(cat <<'EOF'
+feat: replace freeform shift hours with fixed, non-prorated blocks
+
+Coaching runs in scheduled sessions, not arbitrary clock-in/out spans:
+Tue/Thu evening, and two Sat/Sun sessions. A coach now picks one of
+today's valid blocks at clock-in; clockInAt/clockOutAt still record
+real attendance, but pay comes from the block's fixed duration, not
+those timestamps. The clock-in gate hides entirely on days with no
+scheduled session. Seed data reworked to land on real session dates
+computed relative to whatever day it's actually run.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01R5hdvFeQDbGEJn2sezN3E7
+EOF
+)"
+```
+
+---
+
 ## Summary
 
-18 tasks: schema + seed + pure functions (1-4) → public/admin registration and QR (5-7) → coach clock-in and shift review (8-10) → admin payroll (11) → check-in scanning, tying registration and shifts together (12-15) → student-facing profile rework (16) → cleanup of everything the schema change broke (17) → full end-to-end walkthrough (18). Each task after the first three stands on the ones before it, so this plan is meant to be executed roughly in order — Task 12's note about Task 13 is the one explicit exception where a later task's function is referenced slightly early.
+19 tasks: schema + seed + pure functions (1-4) → public/admin registration and QR (5-7) → coach clock-in and shift review (8-10) → admin payroll (11) → check-in scanning, tying registration and shifts together (12-15) → student-facing profile rework (16) → cleanup of everything the schema change broke (17) → full end-to-end walkthrough (18) → post-launch amendment replacing freeform shift hours with fixed, non-prorated blocks (19). Each task after the first three stands on the ones before it, so this plan is meant to be executed roughly in order — Task 12's note about Task 13 is the one explicit exception where a later task's function is referenced slightly early. Task 19 is the one exception to "in order": it was written after Task 18's walkthrough surfaced a wrong premise in Tasks 4/8/9/11, so it amends them retroactively rather than building on top.
 

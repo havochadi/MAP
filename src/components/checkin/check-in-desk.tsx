@@ -9,8 +9,9 @@ import { Scanner } from "@/components/checkin/scanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { SHIFT_BLOCKS, type ShiftBlockKey } from "@/lib/shift-blocks";
 
-type Shift = { id: string; venue: { name: string }; clockInAt: Date };
+type Shift = { id: string; venue: { name: string }; clockInAt: Date; shiftBlock: ShiftBlockKey };
 
 export function CheckInDesk({ shift, initialCount }: { shift: Shift; initialCount: number }) {
   const [scanning, setScanning] = useState(true);
@@ -63,7 +64,8 @@ export function CheckInDesk({ shift, initialCount }: { shift: Shift; initialCoun
           <div>
             <p className="text-sm font-medium">Clocked in at {shift.venue.name}</p>
             <p className="text-xs opacity-80">
-              since {new Date(shift.clockInAt).toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" })}
+              {SHIFT_BLOCKS[shift.shiftBlock].label} · since{" "}
+              {new Date(shift.clockInAt).toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" })}
             </p>
           </div>
           <Button

@@ -3,6 +3,7 @@ import { requireCoach } from "@/lib/session";
 import { getPaySummary } from "@/data/coach-shifts";
 import { computeShiftHours, computeShiftPay } from "@/lib/pay";
 import { formatDateForDisplay } from "@/lib/dates";
+import { SHIFT_BLOCKS } from "@/lib/shift-blocks";
 
 function csvField(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
 
   const shifts = await getPaySummary(from, to);
 
-  const header = "Coach,Date,Venue,Clock In,Clock Out,Hours,Pay";
+  const header = "Coach,Date,Session,Venue,Clock In,Clock Out,Hours,Pay";
   const rows = shifts.map((shift) => {
     const hours = computeShiftHours(shift).toFixed(2);
     const pay = computeShiftPay(shift).toFixed(2);
@@ -27,7 +28,16 @@ export async function GET(request: Request) {
     const clockOut = shift.clockOutAt
       ? shift.clockOutAt.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" })
       : "";
-    return [csvField(shift.coach.name), csvField(formatDateForDisplay(shift.shiftDate)), csvField(shift.venue.name), csvField(clockIn), csvField(clockOut), hours, pay].join(",");
+    return [
+      csvField(shift.coach.name),
+      csvField(formatDateForDisplay(shift.shiftDate)),
+      csvField(SHIFT_BLOCKS[shift.shiftBlock].label),
+      csvField(shift.venue.name),
+      csvField(clockIn),
+      csvField(clockOut),
+      hours,
+      pay,
+    ].join(",");
   });
 
   const csv = [header, ...rows].join("\n");

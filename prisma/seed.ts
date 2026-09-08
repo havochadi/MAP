@@ -1,11 +1,13 @@
-// Seed data for local demo/dev. Seeds a coach (farhan) with an OPEN shift at
-// Tampines Centre so a fresh login lands directly on the check-in desk, plus
-// shifts in every payroll state (PENDING/APPROVED/REJECTED) so the admin
-// payroll queue has something real to review immediately.
+// Seed data for local demo/dev. Seeds a coach (farhan) with an open shift at
+// Tampines Centre — today's session if one is scheduled (Tue/Thu evening,
+// Sat/Sun), otherwise their most recent past session — plus shifts in every
+// payroll state (PENDING/APPROVED/REJECTED) so the admin payroll queue has
+// something real to review immediately.
 import "dotenv/config";
 import { PrismaClient } from "../src/generated/prisma/client";
 import bcrypt from "bcryptjs";
-import { getSingaporeTodayString, addDaysToDateString } from "../src/lib/dates";
+import { getSingaporeTodayString, addDaysToDateString, getDayOfWeek } from "../src/lib/dates";
+import { blocksForDay, SHIFT_BLOCKS, type ShiftBlockKey } from "../src/lib/shift-blocks";
 import { mathCurriculum } from "./curriculum-data/math";
 import { englishCurriculum } from "./curriculum-data/english";
 import { scienceCurriculum } from "./curriculum-data/science";
@@ -57,6 +59,26 @@ function deriveEmergencyContact(studentName: string, index: number) {
 // avoids any dependence on the machine's local timezone.
 function toSingaporeDateTime(dateStr: string, time: string): Date {
   return new Date(`${dateStr}T${time}:00+08:00`);
+}
+
+// Walks backward from (not including) `fromDateStr`, collecting the most
+// recent `count` dates that actually have a scheduled session — so seeded
+// shift dates are never a day the app itself would refuse to clock in on.
+function recentSessionDates(fromDateStr: string, count: number): string[] {
+  const dates: string[] = [];
+  let d = fromDateStr;
+  while (dates.length < count) {
+    d = addDaysToDateString(d, -1);
+    if (blocksForDay(getDayOfWeek(d)).length > 0) dates.push(d);
+  }
+  return dates;
+}
+
+// Weekdays only ever offer one block; weekends offer two — `variant` picks
+// between them (mod length) purely for demo variety.
+function pickBlock(dateStr: string, variant: number): ShiftBlockKey {
+  const options = blocksForDay(getDayOfWeek(dateStr));
+  return options[variant % options.length];
 }
 
 async function main() {
@@ -184,50 +206,89 @@ async function main() {
   }
 
   console.log("Creating coach shifts (every payroll status, so the admin queue has something to review)...");
+  const todayBlocks = blocksForDay(getDayOfWeek(today));
+  const todayHasSession = todayBlocks.length > 0;
+
+  // 8 most recent session dates strictly before today — drawn from in
+  // order below, so every seeded shift lands on a day the app would
+  // actually let a coach clock in on.
+  const pastSessions = recentSessionDates(today, 8);
+  let nextPastSessionIndex = 0;
+  const nextPastSessionDate = () => pastSessions[nextPastSessionIndex++];
+
+  // farhan: open today if a session is scheduled today, else their most
+  // recent past session shows as PENDING instead — logging in as farhan
+  // lands directly on the check-in desk only on an actual session day.
+  const farhanCurrentDate = todayHasSession ? today : nextPastSessionDate();
+  const farhanCurrentBlock = todayHasSession ? todayBlocks[0] : pickBlock(farhanCurrentDate, 0);
+  const farhanCurrentStatus: ShiftStatus = todayHasSession ? "OPEN" : "PENDING";
+
+  // Drawn in this order purely so the payroll-status variety below (2 more
+  // farhan, then aishah/danial/ain/haziq/nabila) reads top-to-bottom.
+  const [farhanApproved1Date, farhanApproved2Date, aishahPendingDate, danialApprovedDate, ainRejectedDate, haziqApprovedDate, nabilaApprovedDate] = [
+    nextPastSessionDate(),
+    nextPastSessionDate(),
+    nextPastSessionDate(),
+    nextPastSessionDate(),
+    nextPastSessionDate(),
+    nextPastSessionDate(),
+    nextPastSessionDate(),
+  ];
+
   type ShiftDef = {
     coachKey: string;
     venue: typeof tampines;
     shiftDate: string;
-    clockInTime: string;
-    clockOutTime: string | null;
+    shiftBlock: ShiftBlockKey;
     status: ShiftStatus;
+    // Only the "left early" REJECTED demo below needs this — every other
+    // shift clocks out at the block's own end time.
+    clockOutMinutesAfterStart?: number;
     reviewNote?: string;
   };
   const shiftDefs: ShiftDef[] = [
-    // farhan: OPEN today at Tampines — logging in as farhan lands directly
-    // on the check-in desk, camera-ready.
-    { coachKey: "farhan", venue: tampines, shiftDate: today, clockInTime: "16:00", clockOutTime: null, status: "OPEN" },
+    { coachKey: "farhan", venue: tampines, shiftDate: farhanCurrentDate, shiftBlock: farhanCurrentBlock, status: farhanCurrentStatus },
     // farhan: two past approved shifts, so his profile shows real hours.
-    { coachKey: "farhan", venue: tampines, shiftDate: addDaysToDateString(today, -7), clockInTime: "16:00", clockOutTime: "19:30", status: "APPROVED" },
-    { coachKey: "farhan", venue: bedok, shiftDate: addDaysToDateString(today, -3), clockInTime: "17:00", clockOutTime: "20:00", status: "APPROVED" },
-    // aishah: clocked out yesterday, awaiting review.
-    { coachKey: "aishah", venue: woodlands, shiftDate: addDaysToDateString(today, -1), clockInTime: "16:00", clockOutTime: "18:45", status: "PENDING" },
+    { coachKey: "farhan", venue: tampines, shiftDate: farhanApproved1Date, shiftBlock: pickBlock(farhanApproved1Date, 0), status: "APPROVED" },
+    { coachKey: "farhan", venue: bedok, shiftDate: farhanApproved2Date, shiftBlock: pickBlock(farhanApproved2Date, 1), status: "APPROVED" },
+    // aishah: clocked out, awaiting review.
+    { coachKey: "aishah", venue: woodlands, shiftDate: aishahPendingDate, shiftBlock: pickBlock(aishahPendingDate, 1), status: "PENDING" },
     // danial: already reviewed and approved.
-    { coachKey: "danial", venue: bedok, shiftDate: addDaysToDateString(today, -2), clockInTime: "17:00", clockOutTime: "20:15", status: "APPROVED" },
+    { coachKey: "danial", venue: bedok, shiftDate: danialApprovedDate, shiftBlock: pickBlock(danialApprovedDate, 0), status: "APPROVED" },
     // ain: rejected, with a reason — demos the reject-with-reviewNote path.
+    // Attendance (not pay) is the issue here: they left 20 minutes into a
+    // full block, which is exactly the kind of thing pay-by-block can't
+    // catch on its own and admin review exists to catch.
     {
       coachKey: "ain",
       venue: tampines,
-      shiftDate: addDaysToDateString(today, -4),
-      clockInTime: "16:00",
-      clockOutTime: "16:20",
+      shiftDate: ainRejectedDate,
+      shiftBlock: pickBlock(ainRejectedDate, 0),
       status: "REJECTED",
+      clockOutMinutesAfterStart: 20,
       reviewNote: "Clocked out after 20 minutes — check with Ain before re-approving.",
     },
-    { coachKey: "haziq", venue: woodlands, shiftDate: addDaysToDateString(today, -6), clockInTime: "17:30", clockOutTime: "20:00", status: "APPROVED" },
-    { coachKey: "nabila", venue: woodlands, shiftDate: addDaysToDateString(today, -5), clockInTime: "16:00", clockOutTime: "18:00", status: "APPROVED" },
+    { coachKey: "haziq", venue: woodlands, shiftDate: haziqApprovedDate, shiftBlock: pickBlock(haziqApprovedDate, 1), status: "APPROVED" },
+    { coachKey: "nabila", venue: woodlands, shiftDate: nabilaApprovedDate, shiftBlock: pickBlock(nabilaApprovedDate, 0), status: "APPROVED" },
   ];
 
   const shifts: Record<string, Awaited<ReturnType<typeof prisma.coachShift.create>>> = {};
   for (const [i, def] of shiftDefs.entries()) {
-    const clockInAt = toSingaporeDateTime(def.shiftDate, def.clockInTime);
-    const clockOutAt = def.clockOutTime ? toSingaporeDateTime(def.shiftDate, def.clockOutTime) : null;
+    const block = SHIFT_BLOCKS[def.shiftBlock];
+    const clockInAt = toSingaporeDateTime(def.shiftDate, block.startTime);
+    const clockOutAt =
+      def.status === "OPEN"
+        ? null
+        : def.clockOutMinutesAfterStart != null
+          ? new Date(clockInAt.getTime() + def.clockOutMinutesAfterStart * 60_000)
+          : toSingaporeDateTime(def.shiftDate, block.endTime);
     const isReviewed = def.status === "APPROVED" || def.status === "REJECTED";
     shifts[`shift${i}`] = await prisma.coachShift.create({
       data: {
         coachId: coaches[def.coachKey].id,
         venueId: def.venue.id,
         shiftDate: def.shiftDate,
+        shiftBlock: def.shiftBlock,
         clockInAt,
         clockOutAt,
         status: def.status,
@@ -239,38 +300,42 @@ async function main() {
   }
 
   console.log("Creating check-ins...");
-  // The Tampines P3 crew, checked in today under farhan's open shift — so
-  // "checked in this shift" isn't zero the moment you log in.
+  // The Tampines P3 crew, checked in under farhan's "current" shift (see
+  // above) — so "checked in this shift" isn't zero the moment you look,
+  // whether that shift is today's live session or the most recent past one.
   for (const key of ["s1", "s2", "s3", "s4"]) {
     await prisma.checkIn.create({
       data: {
         studentId: students[key].id,
         venueId: tampines.id,
-        checkInDate: today,
-        checkedInAt: toSingaporeDateTime(today, "16:05"),
+        checkInDate: shifts.shift0.shiftDate,
+        checkedInAt: new Date(shifts.shift0.clockInAt.getTime() + 5 * 60_000),
         coachShiftId: shifts.shift0.id,
       },
     });
   }
 
   // A little check-in history under the past approved shifts, so student
-  // profile pages have real history to show.
-  const historyCheckIns: { studentKey: string; shiftKey: string; venue: typeof tampines; date: string; time: string }[] = [
-    { studentKey: "s1", shiftKey: "shift1", venue: tampines, date: addDaysToDateString(today, -7), time: "16:10" },
-    { studentKey: "s2", shiftKey: "shift1", venue: tampines, date: addDaysToDateString(today, -7), time: "16:12" },
-    { studentKey: "s6", shiftKey: "shift6", venue: woodlands, date: addDaysToDateString(today, -6), time: "17:40" },
-    { studentKey: "s7", shiftKey: "shift6", venue: woodlands, date: addDaysToDateString(today, -6), time: "17:45" },
-    { studentKey: "s9", shiftKey: "shift7", venue: woodlands, date: addDaysToDateString(today, -5), time: "16:05" },
-    { studentKey: "s11", shiftKey: "shift4", venue: bedok, date: addDaysToDateString(today, -2), time: "17:05" },
+  // profile pages have real history to show. Date/time are derived from
+  // each shift's own clockInAt rather than hardcoded, so they always land
+  // within that shift's actual block window.
+  const historyCheckIns: { studentKey: string; shiftKey: string; venue: typeof tampines; minutesAfterClockIn: number }[] = [
+    { studentKey: "s1", shiftKey: "shift1", venue: tampines, minutesAfterClockIn: 10 },
+    { studentKey: "s2", shiftKey: "shift1", venue: tampines, minutesAfterClockIn: 12 },
+    { studentKey: "s6", shiftKey: "shift6", venue: woodlands, minutesAfterClockIn: 15 },
+    { studentKey: "s7", shiftKey: "shift6", venue: woodlands, minutesAfterClockIn: 20 },
+    { studentKey: "s9", shiftKey: "shift7", venue: woodlands, minutesAfterClockIn: 5 },
+    { studentKey: "s11", shiftKey: "shift4", venue: bedok, minutesAfterClockIn: 5 },
   ];
   for (const c of historyCheckIns) {
+    const shift = shifts[c.shiftKey];
     await prisma.checkIn.create({
       data: {
         studentId: students[c.studentKey].id,
         venueId: c.venue.id,
-        checkInDate: c.date,
-        checkedInAt: toSingaporeDateTime(c.date, c.time),
-        coachShiftId: shifts[c.shiftKey].id,
+        checkInDate: shift.shiftDate,
+        checkedInAt: new Date(shift.clockInAt.getTime() + c.minutesAfterClockIn * 60_000),
+        coachShiftId: shift.id,
       },
     });
   }
@@ -315,9 +380,14 @@ async function main() {
   for (const def of coachDefs) {
     console.log(`  ${def.email}${def.isAdmin ? "  (admin)" : ""}`);
   }
-  console.log("\nfarhan@map.test is clocked in at Tampines Centre with 4 students already checked in today —");
-  console.log("log in as farhan to see the check-in desk live. admin@map.test has a pending shift (aishah's)");
-  console.log("waiting for review at /payroll.");
+  if (todayHasSession) {
+    console.log(`\nfarhan@map.test is clocked in at Tampines Centre (${SHIFT_BLOCKS[farhanCurrentBlock].label}) with 4`);
+    console.log("students already checked in — log in as farhan to see the check-in desk live.");
+  } else {
+    console.log("\nNo session is scheduled today (Study Space runs Tue & Thu evenings, and Sat & Sun) — log in as");
+    console.log("farhan and come back on a session day to see the check-in desk live.");
+  }
+  console.log("admin@map.test has a pending shift waiting for review at /payroll.");
   console.log(`\nCurriculum guide: ${totalTopics} topics across ${totalCombos} subject/level combinations (Math & English P1-Sec4, Science P3-Sec4).`);
 
   console.log("\nStudent QR/portal login codes (sign in at /login's Student tab, or scan the QR from their profile):");

@@ -48,3 +48,6 @@ next-env.d.ts
 
 # git worktrees used for isolated feature work
 /.worktrees
+
+# brainstorming visual-companion scratch files
+/.superpowers/

@@ -21,7 +21,7 @@ export default function LoginPage() {
   const quickLoginError = quickCoachState?.error ?? quickAdminState?.error ?? quickStudentState?.error;
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-gradient-to-b from-sky-50 via-muted/30 to-muted/40 px-4">
+    <div className="flex min-h-svh items-center justify-center bg-gradient-to-b from-[color-mix(in_oklch,var(--gradient-primary-start),white_92%)] via-muted/30 to-muted/40 px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-3 text-center">
           <AppLogo size={56} />

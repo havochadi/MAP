@@ -8,7 +8,7 @@ import { GraduationCap } from "lucide-react";
 export function AppLogo({ size = 40, className }: { size?: number; className?: string }) {
   return (
     <div
-      className={`flex shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm ${className ?? ""}`}
+      className={`flex shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--gradient-primary-start)] to-[var(--gradient-primary-end)] text-primary-foreground shadow-sm ${className ?? ""}`}
       style={{ width: size, height: size }}
     >
       <GraduationCap className="size-1/2" aria-hidden="true" />

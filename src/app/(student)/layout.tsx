@@ -14,7 +14,7 @@ export default async function StudentLayout({ children }: { children: React.Reac
   if (!student) redirect("/login");
 
   return (
-    <div className="min-h-svh bg-gradient-to-b from-sky-50 via-background to-background">
+    <div className="min-h-svh bg-gradient-to-b from-[color-mix(in_oklch,var(--gradient-primary-start),white_92%)] via-background to-background">
       <StudentTopBar name={student.name} />
       <main className="mx-auto w-full max-w-2xl px-4 pb-12 pt-6">{children}</main>
       <Toaster />

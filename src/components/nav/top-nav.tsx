@@ -39,7 +39,7 @@ export function TopNav({ coach }: { coach: NavCoach }) {
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm",
-                  isActive ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:text-foreground",
+                  isActive ? "bg-secondary text-primary" : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Icon className="size-4" aria-hidden="true" />
@@ -54,7 +54,7 @@ export function TopNav({ coach }: { coach: NavCoach }) {
                 aria-current={pathname.startsWith("/students") ? "page" : undefined}
                 className={cn(
                   "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm",
-                  pathname.startsWith("/students") ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:text-foreground",
+                  pathname.startsWith("/students") ? "bg-secondary text-primary" : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Users className="size-4" aria-hidden="true" />
@@ -65,7 +65,7 @@ export function TopNav({ coach }: { coach: NavCoach }) {
                 aria-current={pathname.startsWith("/venues") ? "page" : undefined}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm",
-                  pathname.startsWith("/venues") ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:text-foreground",
+                  pathname.startsWith("/venues") ? "bg-secondary text-primary" : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 Venues

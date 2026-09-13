@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: map-coach-portal
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    # Every boot re-migrates and re-seeds a fresh SQLite file: Render's free
+    # plan has an ephemeral filesystem, so this is what "always demo-ready"
+    # looks like here, at the cost of not persisting new data across restarts.
+    #
+    # DATABASE_URL is computed from $PWD (not hardcoded, not left relative)
+    # deliberately: the Prisma CLI resolves a relative `file:` URL relative to
+    # prisma/schema.prisma, but the generated PrismaClient used by the running
+    # Next.js app resolves the same relative string differently and fails
+    # with "Error code 14: Unable to open the database file" (see
+    # .env.example) — an absolute path resolves identically in both.
+    startCommand: >-
+      export DATABASE_URL="file:$PWD/prisma/dev.db" &&
+      npx prisma migrate deploy &&
+      npx tsx prisma/seed.ts &&
+      npm start
+    envVars:
+      # Needed at build time too: `prisma generate` (run via postinstall)
+      # fails fast if DATABASE_URL is unset at all, even though generate
+      # never opens this file — it's pure codegen from schema.prisma. The
+      # real, absolute path is set later in startCommand for migrate/seed/run.
+      - key: DATABASE_URL
+        value: file:./prisma/build-placeholder.db
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      - key: NODE_ENV
+        value: production

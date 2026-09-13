@@ -24,7 +24,10 @@
 
 This task has manual sub-steps only you can do (OAuth login, project selection) — same pattern as the Render/Vercel dashboard steps earlier.
 
-**Files:** None yet — this task produces a linked local Supabase CLI state (`supabase/config.toml`, `.supabase/` — the latter is local-only, gitignored) and three new `.env` entries.
+**Files:**
+- Create: `supabase/config.toml` (via `supabase init`), `scripts/verify-supabase-connection.ts`
+- Modify: `.env` (3 new entries), `package.json`/`package-lock.json` (2 new dependencies)
+- Local-only, gitignored, not committed: `.supabase/`
 
 - [ ] **Step 1: Install the Supabase CLI as a dev dependency**
 
@@ -332,7 +335,7 @@ git commit -m "feat: provision Supabase Auth identities for seeded coaches and s
 ## Task 4: Custom Access Token Hook (`isAdmin`/`role` JWT claims)
 
 **Files:**
-- Create: `prisma/migrations/<timestamp>_auth_claims_hook/migration.sql`
+- Create: `prisma/migrations/<timestamp>_auth_claims_hook/migration.sql`, `scripts/verify-claims-hook-function.ts`
 
 **Interfaces:**
 - Produces: `public.custom_access_token_hook(event jsonb)` (invoked by Supabase Auth at token-issuance time once enabled — Step 3 below); `public.is_admin()`, `public.current_coach_id()`, `public.current_student_id()` (used by every RLS policy from Task 9 onward).

@@ -29,13 +29,13 @@ This task has manual sub-steps only you can do (OAuth login, project selection) 
 - Modify: `.env` (3 new entries), `package.json`/`package-lock.json` (2 new dependencies)
 - Local-only, gitignored, not committed: `.supabase/`
 
-- [ ] **Step 1: Install the Supabase CLI as a dev dependency**
+- [x] **Step 1: Install the Supabase CLI as a dev dependency**
 
 ```bash
 npm install --save-dev supabase
 ```
 
-- [ ] **Step 2: Initialize the Supabase project structure**
+- [x] **Step 2: Initialize the Supabase project structure**
 
 ```bash
 npx supabase init
@@ -43,7 +43,7 @@ npx supabase init
 
 This creates `supabase/config.toml` and a `supabase/functions/` directory (already partially scaffolded by this plan's setup).
 
-- [ ] **Step 3 (manual — you do this): Log in and link**
+- [x] **Step 3 (manual — you do this): Log in and link**
 
 ```bash
 npx supabase login
@@ -57,7 +57,7 @@ npx supabase link --project-ref <your-project-ref>
 
 The project ref is the subdomain segment in your Supabase dashboard URL (`https://supabase.com/dashboard/project/<project-ref>`) — it's also the same string that appears right after `postgres.` in the username portion of your `DATABASE_URL`.
 
-- [ ] **Step 4 (manual — you do this): Add three values to `.env`**
+- [x] **Step 4 (manual — you do this): Add three values to `.env`**
 
 From the Supabase dashboard → Project Settings → API, add to `.env` (do not paste these into chat — add them directly in your editor, same as the database password earlier):
 
@@ -67,7 +67,7 @@ SUPABASE_ANON_KEY="<the anon/public key>"
 SUPABASE_SERVICE_ROLE_KEY="<the service_role key — never expose this to a browser>"
 ```
 
-- [ ] **Step 5: Install the JS client and verify connectivity**
+- [x] **Step 5: Install the JS client and verify connectivity**
 
 ```bash
 npm install @supabase/supabase-js
@@ -100,12 +100,12 @@ async function main() {
 main();
 ```
 
-- [ ] **Step 6: Run it**
+- [x] **Step 6: Run it**
 
 Run: `npx tsx scripts/verify-supabase-connection.ts`
 Expected: `PASS: connected, admin API reachable (...)`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add package.json package-lock.json supabase/config.toml scripts/verify-supabase-connection.ts .gitignore

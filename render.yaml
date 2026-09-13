@@ -4,28 +4,23 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install --include=dev && npm run build
-    # Every boot re-migrates and re-seeds a fresh SQLite file: Render's free
-    # plan has an ephemeral filesystem, so this is what "always demo-ready"
-    # looks like here, at the cost of not persisting new data across restarts.
-    #
-    # DATABASE_URL is computed from $PWD (not hardcoded, not left relative)
-    # deliberately: the Prisma CLI resolves a relative `file:` URL relative to
-    # prisma/schema.prisma, but the generated PrismaClient used by the running
-    # Next.js app resolves the same relative string differently and fails
-    # with "Error code 14: Unable to open the database file" (see
-    # .env.example) — an absolute path resolves identically in both.
-    startCommand: >-
-      export DATABASE_URL="file:$PWD/prisma/dev.db" &&
-      npx prisma migrate deploy &&
-      npx tsx prisma/seed.ts &&
-      npm start
+    # Postgres (Supabase) is persistent, so boot only applies pending
+    # migrations — it never seeds or wipes data. Seed once after the first
+    # deploy (e.g. `npm run db:seed` locally against the Supabase URLs, or
+    # via Render's Shell tab), not on every boot like the old SQLite setup.
+    startCommand: npx prisma migrate deploy && npm start
     envVars:
-      # Needed at build time too: `prisma generate` (run via postinstall)
-      # fails fast if DATABASE_URL is unset at all, even though generate
-      # never opens this file — it's pure codegen from schema.prisma. The
-      # real, absolute path is set later in startCommand for migrate/seed/run.
+      # Both URLs come from the Supabase dashboard: Project Settings ->
+      # Database -> Connect -> Prisma tab. sync: false means Render won't
+      # store a value here — set the real ones in the dashboard once, under
+      # this service's Environment tab. Both must include sslmode=require
+      # (Supabase's pooler cert chains to its own private CA, which isn't in
+      # the public trust store) or Prisma fails with a misleading P1001
+      # "can't reach database server".
       - key: DATABASE_URL
-        value: file:./prisma/build-placeholder.db
+        sync: false
+      - key: DIRECT_URL
+        sync: false
       - key: AUTH_SECRET
         generateValue: true
       - key: AUTH_TRUST_HOST

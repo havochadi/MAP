@@ -203,8 +203,9 @@ model Student {
 
 model Enrollment {
   // A student may hold at most 3 ACTIVE enrollments (real MAP rule: up to 3
-  // subjects). Enforced in src/actions/students.ts, not the DB — SQLite has no
-  // clean declarative way to express "count of related rows <= 3".
+  // subjects). Enforced in src/actions/students.ts, not the DB — Prisma has
+  // no declarative way to express "count of related rows <= 3" (would need a
+  // hand-written Postgres trigger/CHECK to push it down to the DB).
   id         String           @id @default(cuid())
   studentId  String
   student    Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)

@@ -150,6 +150,7 @@ model Coach {
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
   createdAt           DateTime  @default(now())
+  authUserId          String?   @unique // Supabase auth.users.id, set once linked
 
   assignments    ClassAssignment[]
   markedSessions AttendanceSession[]
@@ -190,7 +191,8 @@ model Student {
   // (MAP students span P1-JC2, so as young as ~7), it protects only the
   // student's own already-low-sensitivity view of data their coach already
   // manages, and it needs to be looked up directly by value.
-  loginCode String @unique
+  loginCode  String  @unique
+  authUserId String? @unique // Supabase auth.users.id, set once linked
 
   enrollments           Enrollment[]           // unused going forward — see Global Constraints
   attendanceRecords     AttendanceRecord[]      // unused going forward — see Global Constraints

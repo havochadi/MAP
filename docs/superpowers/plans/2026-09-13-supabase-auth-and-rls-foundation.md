@@ -649,7 +649,7 @@ git commit -m "feat: add coach-login Edge Function with lockout preserved"
 - Consumes: `Student.loginCode`/`status`/`authUserId` (existing + Task 2).
 - Produces: `POST /functions/v1/student-login` — request `{ code: string }`, response `200 { session: Session }` or `401 { error: string }`.
 
-- [ ] **Step 1: Write the function**
+- [x] **Step 1: Write the function**
 
 ```ts
 // supabase/functions/student-login/index.ts
@@ -695,7 +695,9 @@ Deno.serve(async (req) => {
   const { data: verifyData, error: verifyError } = await admin.auth.verifyOtp({
     type: "magiclink",
     token_hash: linkData.properties.hashed_token,
-    email: authUser.user.email,
+    // Deliberately no `email` field here: @supabase/supabase-js 2.116.0
+    // rejects token_hash + email together ("Only the token_hash and type
+    // should be provided"). token_hash alone is sufficient.
   });
   if (verifyError || !verifyData.session) {
     return Response.json({ error: "Could not start session." }, { status: 500, headers: corsHeaders });
@@ -705,11 +707,11 @@ Deno.serve(async (req) => {
 });
 ```
 
-- [ ] **Step 2: Deploy**
+- [x] **Step 2: Deploy**
 
 Run: `npx supabase functions deploy student-login`
 
-- [ ] **Step 3: Write and run the verification script**
+- [x] **Step 3: Write and run the verification script**
 
 ```ts
 // scripts/verify-student-login.ts
@@ -756,7 +758,7 @@ Expected: `PASS: valid code returns a session with role=student claim; invalid c
 
 (If `GHW7UD` no longer exists in your seed data, substitute any current student's `loginCode`.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add supabase/functions/student-login scripts/verify-student-login.ts

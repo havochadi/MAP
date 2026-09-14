@@ -125,7 +125,7 @@ git commit -m "chore: set up Supabase CLI and JS client for the auth/RLS migrati
 **Interfaces:**
 - Produces: `Coach.authUserId` (`String?`, unique), `Student.authUserId` (`String?`, unique) — every later task's SQL and scripts join through these.
 
-- [ ] **Step 1: Edit the schema**
+- [x] **Step 1: Edit the schema**
 
 In `prisma/schema.prisma`, add one field to each model (do not remove `passwordHash` yet — see Global Constraints):
 
@@ -185,12 +185,12 @@ model Student {
 }
 ```
 
-- [ ] **Step 2: Generate and apply the migration**
+- [x] **Step 2: Generate and apply the migration**
 
 Run: `npx prisma migrate dev --name add_supabase_auth_link`
 Expected: prompts for nothing (purely additive, nullable columns — no data loss warning), ends with `Your database is now in sync with your schema.`
 
-- [ ] **Step 3: Verify the column exists on both tables**
+- [x] **Step 3: Verify the column exists on both tables**
 
 Run:
 ```bash
@@ -200,12 +200,12 @@ Expected: exits successfully with no error (the earlier `db pull --print` trick 
 
 Concretely: `cat prisma/migrations/*_add_supabase_auth_link/migration.sql` and confirm it contains two `ALTER TABLE ... ADD COLUMN "authUserId" TEXT` (or equivalent) statements plus two unique indexes.
 
-- [ ] **Step 4: Confirm the app still builds**
+- [x] **Step 4: Confirm the app still builds**
 
 Run: `npx tsc --noEmit`
 Expected: no new type errors (this column is additive and unused by existing code so far).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add prisma/schema.prisma prisma/migrations

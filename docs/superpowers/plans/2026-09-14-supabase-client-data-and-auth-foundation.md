@@ -27,7 +27,7 @@
 - `prisma migrate dev`/`--create-only` cannot be used on this project (confirmed in Plan 1: shadow-database diffing fails on every migration from Plan 1's Task 4 onward, since it references Supabase's `auth` schema). Create the one migration this plan needs by hand (`prisma/migrations/<UTC timestamp YYYYMMDDHHMMSS>_<name>/migration.sql`) and apply with `npx prisma migrate deploy`.
 - Any direct `.insert()` via `supabase-js` into a Prisma-defined table needs an explicit `id: crypto.randomUUID()` — Prisma's `@default(cuid())` is a Prisma-Client-side-only default, confirmed repo-wide in Plan 1. This plan's new `src/lib/api/*.ts` insert calls must all include it.
 - Table names in `.from(...)` calls are exact Prisma model names (`"Coach"`, `"CoachShift"`, etc.) — case-sensitive, matching Plan 1's SQL.
-- **An RLS-blocked `.update()`/`.delete()` is NOT an error — confirmed empirically against this project, not assumed.** When RLS's `USING` clause excludes every row a filter matches, PostgREST runs the write against zero rows and returns `error: null`, `data: null`, HTTP 204 — indistinguishable from "nothing needed to change" unless you check further. Tested directly: a non-admin updating a Venue row returns `error: null` both with and without `.select()` chained, and the row is provably unchanged. **Every `.update()`/`.delete()` call in this plan must chain `.select()` (or `.select("id")`) and treat an empty/null result as a failure**, in addition to checking `error` — `if (error || !data)` (single-row `.maybeSingle()`) or `if (error || data.length === 0)` (multi-row), never `if (error)` alone. `.insert()` doesn't have this problem — a `WITH CHECK` violation on insert is a real Postgres error and surfaces normally.
+- **An RLS-blocked `.update()`/`.delete()`/`.select()` is NOT an error — confirmed empirically against this project on both a write and a read, not assumed.** When RLS's `USING` clause excludes every row a filter matches, PostgREST runs the query against zero rows and returns `error: null` — for writes, `data: null`, HTTP 204; for reads, `data: []`, HTTP 200 — indistinguishable from "nothing matched" unless you check further. Tested directly twice: a non-admin updating a Venue row returns `error: null` with and without `.select()` chained (row provably unchanged); an anonymous, unauthenticated read of Venue (SELECT policy is `to authenticated` only) returns `error: null, data: []`, not a denial error. **Every `.update()`/`.delete()` call in this plan chains `.select()` and treats an empty/null result as a failure; every verification script asserting an RLS denial checks the returned `data` for emptiness, never `error` alone** — `if (error || !data)` (single-row `.maybeSingle()`) or `if (error || data.length === 0)` (multi-row/list). `.insert()` doesn't have this problem — a `WITH CHECK` violation on insert is a real Postgres error and surfaces normally.
 
 ## File Structure
 
@@ -106,15 +106,21 @@ const supabase = createClient<Database>(
 );
 
 async function main() {
-  const { error } = await supabase.from("Venue").select("id").limit(1);
-  // anon, unauthenticated: RLS requires `to authenticated`, so this must be
-  // denied, not a connection/config error — confirms the client is wired
-  // to the right project with a valid anon key.
-  if (!error) {
-    console.error("FAIL: expected an anonymous, unauthenticated read to be denied by RLS, but it succeeded");
+  const { data, error } = await supabase.from("Venue").select("id").limit(1);
+  // anon, unauthenticated: RLS requires `to authenticated` on Venue's
+  // SELECT policy, so this must return zero rows. An RLS-blocked SELECT
+  // is NOT a Postgres/PostgREST error (same gotcha as the UPDATE/DELETE
+  // case elsewhere in this plan's Global Constraints, just on the read
+  // side) — check `data`, not `error`, or this assertion never fires.
+  if (error) {
+    console.error("FAIL: expected a clean (if empty) response, got a real error — check the env vars:", error);
     process.exit(1);
   }
-  console.log("PASS: browser client env vars are correct (anonymous read denied by RLS as expected):", error.message);
+  if (!data || data.length > 0) {
+    console.error("FAIL: expected an anonymous, unauthenticated read to be denied (empty) by RLS, got", data);
+    process.exit(1);
+  }
+  console.log("PASS: browser client env vars are correct (anonymous read denied by RLS as expected)");
 }
 
 main();

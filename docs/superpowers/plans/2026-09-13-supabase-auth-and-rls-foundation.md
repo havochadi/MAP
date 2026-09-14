@@ -1808,17 +1808,17 @@ git commit -m "feat: add RLS for CoachShift"
 - Create: `prisma/migrations/<timestamp>_rls_class_progress/migration.sql`
 - Create: `scripts/verify-rls-class-progress.ts`
 
-- [ ] **Step 1: Locate what currently writes this table (spec's open item)**
+- [x] **Step 1: Locate what currently writes this table (spec's open item)**
 
 Run: `grep -rln "classProgress" src/actions src/app --include="*.ts" --include="*.tsx"`
 
 Confirm the actual gating used (`requireAdmin`/`requireCoach`+`canAccessClass`/none). If it turns out to be admin-only rather than the assigned-coach pattern assumed below, swap `is_admin() or exists (...)` for just `is_admin()` in Step 2 before applying.
 
-- [ ] **Step 2: Create the empty migration**
+- [x] **Step 2: Create the empty migration**
 
 Run: `npx prisma migrate dev --create-only --name rls_class_progress`
 
-- [ ] **Step 3: Write the SQL**
+- [x] **Step 3: Write the SQL**
 
 ```sql
 -- prisma/migrations/<timestamp>_rls_class_progress/migration.sql
@@ -1839,11 +1839,11 @@ create policy "class_progress_access" on "ClassProgress" for all to authenticate
   );
 ```
 
-- [ ] **Step 4: Apply**
+- [x] **Step 4: Apply**
 
 Run: `npx prisma migrate deploy`
 
-- [ ] **Step 5: Write and run the verification script**
+- [x] **Step 5: Write and run the verification script**
 
 ```ts
 // scripts/verify-rls-class-progress.ts
@@ -1898,7 +1898,7 @@ main();
 Run: `npx tsx scripts/verify-rls-class-progress.ts`
 Expected: `PASS: ClassProgress scopes to assigned coaches`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add prisma/migrations scripts/verify-rls-class-progress.ts

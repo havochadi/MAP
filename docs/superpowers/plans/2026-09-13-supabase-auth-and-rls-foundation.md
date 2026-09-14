@@ -223,7 +223,7 @@ git commit -m "feat: add authUserId link columns for Supabase Auth migration"
 - Consumes: `Coach.authUserId`/`Student.authUserId` (Task 2), `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` (Task 1), `DATABASE_URL` (existing).
 - Produces: every seeded `Coach`/`Student` row gets a non-null `authUserId`; every seeded coach's `auth.users` password matches their existing demo password (`Coach123!`); every seeded student gets a synthetic, never-emailed address of the form `student-<id>@students.map.internal` on their linked `auth.users` entry (this is the address `student-login`, Task 6, will look up via `admin.getUserById` and use with `generateLink`/`verifyOtp` — no real mail is ever sent to it).
 
-- [ ] **Step 1: Write the script**
+- [x] **Step 1: Write the script**
 
 ```ts
 // scripts/provision-auth-users.ts
@@ -290,12 +290,12 @@ main().catch((err) => {
 });
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `npx tsx scripts/provision-auth-users.ts`
 Expected: one `linked coach ...` line per seeded coach (7) and one `linked student ...` line per seeded student (~16), no errors.
 
-- [ ] **Step 3: Write and run the verification script**
+- [x] **Step 3: Write and run the verification script**
 
 ```ts
 // scripts/verify-account-provisioning.ts
@@ -323,7 +323,7 @@ main();
 Run: `npx tsx scripts/verify-account-provisioning.ts`
 Expected: `PASS: all 7 coaches and 16 students have authUserId set` (exact counts may vary slightly — 0 unlinked is what matters).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/provision-auth-users.ts scripts/verify-account-provisioning.ts

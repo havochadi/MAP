@@ -1191,15 +1191,15 @@ git commit -m "feat: add RLS for Venue/Class/CurriculumTopic"
 - Create: `prisma/migrations/<timestamp>_rls_coach/migration.sql`
 - Create: `scripts/verify-rls-coach.ts`
 
-- [ ] **Step 1: Confirm the spec's open item — does a coach edit their own profile anywhere?**
+- [x] **Step 1: Confirm the spec's open item — does a coach edit their own profile anywhere?**
 
 Run: `grep -rn "coaches/\[coachId\]" src/app --include="*.tsx" -l` then check that page and any form it renders for a self-edit path (as opposed to only an admin-editing-a-coach path). The spec tentatively concluded "none currently exposed to self-edit in the UI" — if that holds, the admin-only write policy in Step 3 below is correct as written. If you find a real self-edit form (e.g. a coach changing their own phone number), add a third policy alongside it: `create policy "coach_update_self_limited" on "Coach" for update to authenticated using ("authUserId" = auth.uid()::text) with check ("authUserId" = auth.uid()::text and "isAdmin" = (select "isAdmin" from "Coach" where "authUserId" = auth.uid()::text));` (the `with check` clause prevents a self-edit from also silently granting itself admin).
 
-- [ ] **Step 2: Create the empty migration**
+- [x] **Step 2: Create the empty migration**
 
 Run: `npx prisma migrate dev --create-only --name rls_coach`
 
-- [ ] **Step 3: Write the SQL**
+- [x] **Step 3: Write the SQL**
 
 ```sql
 -- prisma/migrations/<timestamp>_rls_coach/migration.sql
@@ -1224,11 +1224,11 @@ create or replace view public.coach_public as
 grant select on public.coach_public to authenticated;
 ```
 
-- [ ] **Step 4: Apply**
+- [x] **Step 4: Apply**
 
 Run: `npx prisma migrate deploy`
 
-- [ ] **Step 5: Write and run the verification script**
+- [x] **Step 5: Write and run the verification script**
 
 ```ts
 // scripts/verify-rls-coach.ts
@@ -1275,7 +1275,7 @@ main();
 Run: `npx tsx scripts/verify-rls-coach.ts`
 Expected: `PASS: coach_public exposes every coach's name; the base Coach table is self-only for non-admins`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add prisma/migrations scripts/verify-rls-coach.ts

@@ -1570,11 +1570,11 @@ git commit -m "feat: add RLS for ClassAssignment/AttendanceSession/AttendanceRec
 - Create: `prisma/migrations/<timestamp>_rls_checkin_tables/migration.sql`
 - Create: `scripts/verify-rls-checkin-tables.ts`
 
-- [ ] **Step 1: Create the empty migration**
+- [x] **Step 1: Create the empty migration**
 
 Run: `npx prisma migrate dev --create-only --name rls_checkin_tables`
 
-- [ ] **Step 2: Write the SQL**
+- [x] **Step 2: Write the SQL**
 
 ```sql
 -- prisma/migrations/<timestamp>_rls_checkin_tables/migration.sql
@@ -1623,11 +1623,11 @@ create policy "checkin_notification_insert" on "CheckInNotification" for insert 
   );
 ```
 
-- [ ] **Step 3: Apply**
+- [x] **Step 3: Apply**
 
 Run: `npx prisma migrate deploy`
 
-- [ ] **Step 4: Write and run the verification script**
+- [x] **Step 4: Write and run the verification script**
 
 ```ts
 // scripts/verify-rls-checkin-tables.ts
@@ -1682,7 +1682,7 @@ main();
 Run: `npx tsx scripts/verify-rls-checkin-tables.ts`
 Expected: `PASS: CheckIn/CheckInNotification scope correctly to the coach whose shift recorded them`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add prisma/migrations scripts/verify-rls-checkin-tables.ts

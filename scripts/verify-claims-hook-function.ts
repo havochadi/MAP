@@ -16,9 +16,9 @@ async function main() {
     `select public.custom_access_token_hook($1::jsonb) as custom_access_token_hook`,
     JSON.stringify({ user_id: admin.authUserId, claims: {} }),
   );
-  const claims = (result[0].custom_access_token_hook as { claims: { isAdmin: boolean; role: string } }).claims;
-  if (claims.isAdmin !== true || claims.role !== "coach") {
-    console.error("FAIL: expected isAdmin=true, role=coach, got", claims);
+  const claims = (result[0].custom_access_token_hook as { claims: { isAdmin: boolean; app_role: string } }).claims;
+  if (claims.isAdmin !== true || claims.app_role !== "coach") {
+    console.error("FAIL: expected isAdmin=true, app_role=coach, got", claims);
     process.exit(1);
   }
   console.log("PASS: hook function stamps correct claims for an admin coach:", claims);

@@ -1290,11 +1290,11 @@ git commit -m "feat: add RLS for Coach and a coach_public view for names"
 - Create: `prisma/migrations/<timestamp>_rls_student_enrollment/migration.sql`
 - Create: `scripts/verify-rls-student-enrollment.ts`
 
-- [ ] **Step 1: Create the empty migration**
+- [x] **Step 1: Create the empty migration**
 
 Run: `npx prisma migrate dev --create-only --name rls_student_enrollment`
 
-- [ ] **Step 2: Write the SQL**
+- [x] **Step 2: Write the SQL**
 
 ```sql
 -- prisma/migrations/<timestamp>_rls_student_enrollment/migration.sql
@@ -1336,11 +1336,11 @@ create policy "enrollment_write_admin" on "Enrollment" for all to authenticated
   using (is_admin()) with check (is_admin());
 ```
 
-- [ ] **Step 3: Apply**
+- [x] **Step 3: Apply**
 
 Run: `npx prisma migrate deploy`
 
-- [ ] **Step 4: Write and run the verification script**
+- [x] **Step 4: Write and run the verification script**
 
 ```ts
 // scripts/verify-rls-student-enrollment.ts
@@ -1415,7 +1415,7 @@ main();
 Run: `npx tsx scripts/verify-rls-student-enrollment.ts`
 Expected: `PASS: assigned coach can read their student; a non-assigned coach cannot`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add prisma/migrations scripts/verify-rls-student-enrollment.ts

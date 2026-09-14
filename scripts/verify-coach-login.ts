@@ -22,9 +22,16 @@ async function main() {
   // Decode the JWT payload (no verification needed here — just confirming
   // the claims hook actually reached this real, issued token).
   const payload = JSON.parse(atob(good.body.session.access_token.split(".")[1]));
-  if (payload.isAdmin !== true || payload.role !== "coach") {
-    console.error("FAIL: expected isAdmin=true, role=coach in the issued JWT, got", payload.isAdmin, payload.role);
+  // app_role, not role: the top-level `role` claim is reserved by
+  // PostgREST for SET ROLE and must stay "authenticated" — see
+  // 20260914083253_fix_auth_claims_hook_role_collision.
+  if (payload.isAdmin !== true || payload.app_role !== "coach") {
+    console.error("FAIL: expected isAdmin=true, app_role=coach in the issued JWT, got", payload.isAdmin, payload.app_role);
     console.error("If this fails, confirm Task 4 Step 3 (enabling the hook in the dashboard) was done.");
+    process.exit(1);
+  }
+  if (payload.role !== "authenticated") {
+    console.error("FAIL: expected the reserved `role` claim to stay 'authenticated' (PostgREST SET ROLE), got", payload.role);
     process.exit(1);
   }
 

@@ -20,8 +20,15 @@ async function main() {
   }
 
   const payload = JSON.parse(atob(good.body.session.access_token.split(".")[1]));
-  if (payload.role !== "student") {
-    console.error("FAIL: expected role=student in the issued JWT, got", payload.role);
+  // app_role, not role: the top-level `role` claim is reserved by
+  // PostgREST for SET ROLE and must stay "authenticated" — see
+  // 20260914083253_fix_auth_claims_hook_role_collision.
+  if (payload.app_role !== "student") {
+    console.error("FAIL: expected app_role=student in the issued JWT, got", payload.app_role);
+    process.exit(1);
+  }
+  if (payload.role !== "authenticated") {
+    console.error("FAIL: expected the reserved `role` claim to stay 'authenticated' (PostgREST SET ROLE), got", payload.role);
     process.exit(1);
   }
 

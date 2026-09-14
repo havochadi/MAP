@@ -501,7 +501,7 @@ git commit -m "feat: add custom access token hook stamping isAdmin/role claims"
 - Consumes: `Coach.authUserId`/`failedLoginAttempts`/`lockedUntil` (Task 2), `public.is_admin()`-relevant claims (Task 4).
 - Produces: `POST /functions/v1/coach-login` — request `{ email: string; password: string }`, response `200 { session: Session }` or `401/423 { error: string }`. `Session` is the shape `@supabase/supabase-js`'s `Session` type expects (`access_token`, `refresh_token`, etc.) — later, the browser client calls `supabase.auth.setSession(session)` with this directly.
 
-- [ ] **Step 1: Shared CORS helper**
+- [x] **Step 1: Shared CORS helper**
 
 ```ts
 // supabase/functions/_shared/cors.ts
@@ -511,7 +511,7 @@ export const corsHeaders = {
 };
 ```
 
-- [ ] **Step 2: Write the function**
+- [x] **Step 2: Write the function**
 
 ```ts
 // supabase/functions/coach-login/index.ts
@@ -575,12 +575,12 @@ Deno.serve(async (req) => {
 });
 ```
 
-- [ ] **Step 3: Deploy it**
+- [x] **Step 3: Deploy it**
 
 Run: `npx supabase functions deploy coach-login`
 Expected: `Deployed Function coach-login`
 
-- [ ] **Step 4: Write and run the verification script**
+- [x] **Step 4: Write and run the verification script**
 
 ```ts
 // scripts/verify-coach-login.ts
@@ -630,7 +630,7 @@ Expected: `PASS: correct login returns a session with isAdmin/role claims; wrong
 
 If it fails on the claims check specifically, go back to Task 4 Step 3 — the hook function existing isn't enough, it must be toggled on in the dashboard.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/functions scripts/verify-coach-login.ts

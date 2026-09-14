@@ -1911,7 +1911,7 @@ git commit -m "feat: add RLS for ClassProgress"
 
 **Files:** None new — this task only runs what already exists.
 
-- [ ] **Step 1: Run every verification script in one pass**
+- [x] **Step 1: Run every verification script in one pass**
 
 ```bash
 for f in scripts/verify-*.ts; do
@@ -1922,17 +1922,17 @@ done
 
 Expected: every script prints a line starting with `PASS:`, none print `FAIL:` or `STOPPED at`.
 
-- [ ] **Step 2: Confirm the existing app still runs unmodified**
+- [x] **Step 2: Confirm the existing app still runs unmodified**
 
 Run: `npm run build`
 Expected: succeeds exactly as it did before this plan (this plan never touched `src/auth.ts`, `src/actions/`, or any page — only additive schema, new Edge Functions, and RLS policies the current Prisma-based app doesn't query through, so nothing here should have broken it).
 
-- [ ] **Step 3: Confirm `prisma migrate status` is clean**
+- [x] **Step 3: Confirm `prisma migrate status` is clean**
 
 Run: `npx prisma migrate status`
 Expected: `Database schema is up to date!`
 
-- [ ] **Step 4: Final commit**
+- [x] **Step 4: Final commit**
 
 ```bash
 git add -A

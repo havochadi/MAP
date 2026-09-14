@@ -10,18 +10,19 @@ const supabase = createClient<Database>(
 );
 
 async function main() {
-  const { error } = await supabase.from("Venue").insert([{
-    id: crypto.randomUUID(),
-    name: "Test Venue",
-  }]).select();
+  const { data, error } = await supabase.from("Venue").select("id").limit(1);
   // anon, unauthenticated: RLS requires `to authenticated`, so this must be
   // denied, not a connection/config error — confirms the client is wired
   // to the right project with a valid anon key.
-  if (!error) {
-    console.error("FAIL: expected an anonymous, unauthenticated write to be denied by RLS, but it succeeded");
+  if (error) {
+    console.error("FAIL: expected a clean (if empty) response, got a real error — check the env vars:", error);
     process.exit(1);
   }
-  console.log("PASS: browser client env vars are correct (anonymous write denied by RLS as expected):", error.message);
+  if (!data || data.length > 0) {
+    console.error("FAIL: expected an anonymous, unauthenticated read to be denied (empty) by RLS, got", data);
+    process.exit(1);
+  }
+  console.log("PASS: browser client env vars are correct (anonymous read denied by RLS as expected)");
 }
 
 main();

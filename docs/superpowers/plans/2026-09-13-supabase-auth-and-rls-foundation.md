@@ -777,13 +777,13 @@ git commit -m "feat: add student-login Edge Function"
 - Consumes: nothing prior (public, unauthenticated — matches today's `registerStudent` server action exactly).
 - Produces: `POST /functions/v1/register-student` — request matches `registerStudentSchema`'s shape (`name`, `level`, `contactNumber`, `schoolName`, `email`, `isMapStudent`, `emergencyContactName`, `emergencyContactRelationship`, `emergencyContactPhone`, `referralSource?`), response `200 { studentId: string; loginCode: string }` or `400 { error: string }`.
 
-- [ ] **Step 1: Check the exact validation schema first**
+- [x] **Step 1: Check the exact validation schema first**
 
 Run: `cat src/validations/registration.ts`
 
 Copy its exact field list/types into the Edge Function's own validation below — Deno Edge Functions can't import from `src/` directly (it's a separate Deno runtime, not bundled with the Next.js app), so the shape is intentionally duplicated here, not imported.
 
-- [ ] **Step 2: Write the function**
+- [x] **Step 2: Write the function**
 
 ```ts
 // supabase/functions/register-student/index.ts
@@ -831,6 +831,12 @@ Deno.serve(async (req) => {
   const { data: student, error } = await admin
     .from("Student")
     .insert({
+      // Prisma's @default(cuid()) only runs client-side in Prisma Client —
+      // there's no DB-level default, so a direct PostgREST insert must
+      // supply its own id or hit a NOT NULL violation. crypto.randomUUID()
+      // is native to Deno (the `cuid` npm package crashes at module-load
+      // time in this edge sandbox); no code in this repo validates id format.
+      id: crypto.randomUUID(),
       name: body.name,
       level: body.level,
       contactNumber: body.contactNumber,
@@ -854,13 +860,13 @@ Deno.serve(async (req) => {
 });
 ```
 
-- [ ] **Step 3: Deploy**
+- [x] **Step 3: Deploy**
 
 Run: `npx supabase functions deploy register-student --no-verify-jwt`
 
 (`--no-verify-jwt` is required here specifically — this is the one function meant to be callable with no session at all, matching today's public `/register` page.)
 
-- [ ] **Step 4: Write and run the verification script**
+- [x] **Step 4: Write and run the verification script**
 
 ```ts
 // scripts/verify-register-student.ts
@@ -898,7 +904,7 @@ main();
 Run: `npx tsx scripts/verify-register-student.ts`
 Expected: `PASS: unauthenticated registration succeeded: { studentId: '...', loginCode: '...' }`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/functions/register-student scripts/verify-register-student.ts
@@ -967,7 +973,10 @@ Deno.serve(async (req) => {
 
   const { data: coach, error: insertError } = await admin
     .from("Coach")
-    .insert({ name, email, phone: phone ?? null, isAdmin: Boolean(isAdmin), authUserId: newAuthUser.user.id })
+    // id: Prisma's @default(cuid()) only runs client-side in Prisma Client —
+    // a direct PostgREST insert must supply its own id (see register-student,
+    // Task 7, which hit this as a NOT NULL violation first).
+    .insert({ id: crypto.randomUUID(), name, email, phone: phone ?? null, isAdmin: Boolean(isAdmin), authUserId: newAuthUser.user.id })
     .select("id")
     .single();
   if (insertError || !coach) {

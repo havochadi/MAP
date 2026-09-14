@@ -434,7 +434,7 @@ as $$
 $$;
 ```
 
-- [ ] **Step 3 (manual — you do this): Enable the hook in the dashboard**
+- [x] **Step 3 (manual — you do this): Enable the hook in the dashboard**
 
 Supabase dashboard → Authentication → Hooks (Auth Hooks) → add a "Custom Access Token" hook → select Postgres function `public.custom_access_token_hook` → Enable. This can only be done from the dashboard/Management API, not from a migration file.
 

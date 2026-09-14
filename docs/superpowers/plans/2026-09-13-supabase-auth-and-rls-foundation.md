@@ -1430,11 +1430,11 @@ git commit -m "feat: add tightened RLS for Student and Enrollment"
 - Create: `prisma/migrations/<timestamp>_rls_class_membership_tables/migration.sql`
 - Create: `scripts/verify-rls-class-membership-tables.ts`
 
-- [ ] **Step 1: Create the empty migration**
+- [x] **Step 1: Create the empty migration**
 
 Run: `npx prisma migrate dev --create-only --name rls_class_membership_tables`
 
-- [ ] **Step 2: Write the SQL**
+- [x] **Step 2: Write the SQL**
 
 ```sql
 -- prisma/migrations/<timestamp>_rls_class_membership_tables/migration.sql
@@ -1494,11 +1494,11 @@ create policy "guardian_notification_access" on "GuardianNotification" for all t
   );
 ```
 
-- [ ] **Step 3: Apply**
+- [x] **Step 3: Apply**
 
 Run: `npx prisma migrate deploy`
 
-- [ ] **Step 4: Write and run the verification script**
+- [x] **Step 4: Write and run the verification script**
 
 ```ts
 // scripts/verify-rls-class-membership-tables.ts
@@ -1555,7 +1555,7 @@ main();
 Run: `npx tsx scripts/verify-rls-class-membership-tables.ts`
 Expected: `PASS: ClassAssignment/AttendanceSession/AttendanceRecord/GuardianNotification scope correctly to assigned coaches`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add prisma/migrations scripts/verify-rls-class-membership-tables.ts

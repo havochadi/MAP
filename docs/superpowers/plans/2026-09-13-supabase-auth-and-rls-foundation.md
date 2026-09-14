@@ -376,7 +376,13 @@ begin
 
   if found then
     claims := jsonb_set(claims, '{isAdmin}', to_jsonb(coach_is_admin));
-    claims := jsonb_set(claims, '{role}', to_jsonb('coach'::text));
+    -- app_role, NOT role: the top-level `role` claim is reserved —
+    -- PostgREST does SET ROLE <claim> on every REST request, and it must
+    -- stay "authenticated". Overwriting it with "coach" here originally
+    -- broke every direct table query for a coach/student session with
+    -- `role "coach" does not exist` (caught in Task 9's verification,
+    -- fixed by a follow-up migration — see 20260914083253_fix_auth_claims_hook_role_collision).
+    claims := jsonb_set(claims, '{app_role}', to_jsonb('coach'::text));
     return jsonb_set(event, '{claims}', claims);
   end if;
 
@@ -386,7 +392,7 @@ begin
 
   if found then
     claims := jsonb_set(claims, '{isAdmin}', to_jsonb(false));
-    claims := jsonb_set(claims, '{role}', to_jsonb('student'::text));
+    claims := jsonb_set(claims, '{app_role}', to_jsonb('student'::text));
     return jsonb_set(event, '{claims}', claims);
   end if;
 
@@ -607,9 +613,15 @@ async function main() {
   // Decode the JWT payload (no verification needed here — just confirming
   // the claims hook actually reached this real, issued token).
   const payload = JSON.parse(atob(good.body.session.access_token.split(".")[1]));
-  if (payload.isAdmin !== true || payload.role !== "coach") {
-    console.error("FAIL: expected isAdmin=true, role=coach in the issued JWT, got", payload.isAdmin, payload.role);
+  // app_role, not role: `role` is reserved by PostgREST for SET ROLE and
+  // must stay "authenticated" — see the Task 4 hook's app_role note.
+  if (payload.isAdmin !== true || payload.app_role !== "coach") {
+    console.error("FAIL: expected isAdmin=true, app_role=coach in the issued JWT, got", payload.isAdmin, payload.app_role);
     console.error("If this fails, confirm Task 4 Step 3 (enabling the hook in the dashboard) was done.");
+    process.exit(1);
+  }
+  if (payload.role !== "authenticated") {
+    console.error("FAIL: expected the reserved `role` claim to stay 'authenticated' (PostgREST SET ROLE), got", payload.role);
     process.exit(1);
   }
 
@@ -736,8 +748,12 @@ async function main() {
   }
 
   const payload = JSON.parse(atob(good.body.session.access_token.split(".")[1]));
-  if (payload.role !== "student") {
-    console.error("FAIL: expected role=student in the issued JWT, got", payload.role);
+  if (payload.app_role !== "student") {
+    console.error("FAIL: expected app_role=student in the issued JWT, got", payload.app_role);
+    process.exit(1);
+  }
+  if (payload.role !== "authenticated") {
+    console.error("FAIL: expected the reserved `role` claim to stay 'authenticated' (PostgREST SET ROLE), got", payload.role);
     process.exit(1);
   }
 
@@ -1079,11 +1095,13 @@ git commit -m "feat: add admin-create-coach Edge Function"
 - Create: `prisma/migrations/<timestamp>_rls_public_read_tables/migration.sql`
 - Create: `scripts/verify-rls-public-read-tables.ts`
 
-- [ ] **Step 1: Create the empty migration**
+- [x] **Step 1: Create the empty migration**
 
 Run: `npx prisma migrate dev --create-only --name rls_public_read_tables`
 
-- [ ] **Step 2: Write the SQL**
+**Note:** from here on, `migrate dev`/`--create-only` fails with `P3006: schema "auth" does not exist` — it replays the full migration history into a shadow database to diff, and every migration from Task 4 onward references Supabase's `auth` schema (`auth.uid()`), which a bare shadow Postgres instance doesn't have. Create the migration folder by hand instead (`mkdir -p prisma/migrations/<UTC-timestamp-YYYYMMDDHHMMSS>_<name>`, write `migration.sql` directly) and apply with `prisma migrate deploy`, which never touches a shadow database. Applies to every remaining task in this plan.
+
+- [x] **Step 2: Write the SQL**
 
 ```sql
 -- prisma/migrations/<timestamp>_rls_public_read_tables/migration.sql
@@ -1100,11 +1118,11 @@ create policy "curriculum_select_authenticated" on "CurriculumTopic" for select 
 create policy "curriculum_write_admin" on "CurriculumTopic" for all to authenticated using (is_admin()) with check (is_admin());
 ```
 
-- [ ] **Step 3: Apply**
+- [x] **Step 3: Apply**
 
 Run: `npx prisma migrate deploy`
 
-- [ ] **Step 4: Write and run the verification script**
+- [x] **Step 4: Write and run the verification script**
 
 ```ts
 // scripts/verify-rls-public-read-tables.ts
@@ -1158,7 +1176,7 @@ main();
 Run: `npx tsx scripts/verify-rls-public-read-tables.ts`
 Expected: `PASS: any coach can read Venue/Class/CurriculumTopic; only admin can write`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add prisma/migrations scripts/verify-rls-public-read-tables.ts

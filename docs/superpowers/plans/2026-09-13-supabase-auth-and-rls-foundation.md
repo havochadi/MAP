@@ -923,11 +923,12 @@ git commit -m "feat: add public register-student Edge Function"
 - Consumes: the caller's `Authorization: Bearer <access_token>` header (from a session minted by Task 5's `coach-login`).
 - Produces: `POST /functions/v1/admin-create-coach` — request `{ name, email, password, phone?, isAdmin }`, response `200 { coachId: string }`, `403 { error: string }` if the caller isn't an admin.
 
-- [ ] **Step 1: Write the function**
+- [x] **Step 1: Write the function**
 
 ```ts
 // supabase/functions/admin-create-coach/index.ts
 import { createClient } from "npm:@supabase/supabase-js@2";
+import bcrypt from "npm:bcryptjs@2.4.3";
 import { corsHeaders } from "../_shared/cors.ts";
 
 Deno.serve(async (req) => {
@@ -971,12 +972,27 @@ Deno.serve(async (req) => {
     return Response.json({ error: createError?.message ?? "Could not create login." }, { status: 400, headers: corsHeaders });
   }
 
+  // Coach.passwordHash is still NOT NULL (Global Constraints: it's not
+  // dropped until Plan 2, since src/auth.ts's NextAuth path still reads
+  // it) — hash the same password at the same cost factor as the existing
+  // admin coach-creation flow (src/actions/coaches.ts) so it stays valid
+  // there too, not just via this new Supabase-auth path.
+  const passwordHash = await bcrypt.hash(password, 12);
+
   const { data: coach, error: insertError } = await admin
     .from("Coach")
     // id: Prisma's @default(cuid()) only runs client-side in Prisma Client —
     // a direct PostgREST insert must supply its own id (see register-student,
     // Task 7, which hit this as a NOT NULL violation first).
-    .insert({ id: crypto.randomUUID(), name, email, phone: phone ?? null, isAdmin: Boolean(isAdmin), authUserId: newAuthUser.user.id })
+    .insert({
+      id: crypto.randomUUID(),
+      name,
+      email,
+      passwordHash,
+      phone: phone ?? null,
+      isAdmin: Boolean(isAdmin),
+      authUserId: newAuthUser.user.id,
+    })
     .select("id")
     .single();
   if (insertError || !coach) {
@@ -987,11 +1003,11 @@ Deno.serve(async (req) => {
 });
 ```
 
-- [ ] **Step 2: Deploy**
+- [x] **Step 2: Deploy**
 
 Run: `npx supabase functions deploy admin-create-coach`
 
-- [ ] **Step 3: Write and run the verification script**
+- [x] **Step 3: Write and run the verification script**
 
 ```ts
 // scripts/verify-admin-create-coach.ts
@@ -1048,7 +1064,7 @@ main();
 Run: `npx tsx scripts/verify-admin-create-coach.ts`
 Expected: `PASS: admin can create a coach; non-admin is rejected with 403`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add supabase/functions/admin-create-coach scripts/verify-admin-create-coach.ts

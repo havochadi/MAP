@@ -340,13 +340,13 @@ git commit -m "feat: provision Supabase Auth identities for seeded coaches and s
 **Interfaces:**
 - Produces: `public.custom_access_token_hook(event jsonb)` (invoked by Supabase Auth at token-issuance time once enabled — Step 3 below); `public.is_admin()`, `public.current_coach_id()`, `public.current_student_id()` (used by every RLS policy from Task 9 onward).
 
-- [ ] **Step 1: Create an empty migration to hand-write**
+- [x] **Step 1: Create an empty migration to hand-write**
 
 Run: `npx prisma migrate dev --create-only --name auth_claims_hook`
 
 This creates `prisma/migrations/<timestamp>_auth_claims_hook/migration.sql` with no content (schema.prisma hasn't changed — RLS/functions aren't expressible in it).
 
-- [ ] **Step 2: Write the migration SQL**
+- [x] **Step 2: Write the migration SQL**
 
 ```sql
 -- prisma/migrations/<timestamp>_auth_claims_hook/migration.sql
@@ -438,12 +438,12 @@ $$;
 
 Supabase dashboard → Authentication → Hooks (Auth Hooks) → add a "Custom Access Token" hook → select Postgres function `public.custom_access_token_hook` → Enable. This can only be done from the dashboard/Management API, not from a migration file.
 
-- [ ] **Step 4: Apply the migration**
+- [x] **Step 4: Apply the migration**
 
 Run: `npx prisma migrate deploy`
 Expected: `1 migration found... applied.` / `No pending migrations to apply` on subsequent runs.
 
-- [ ] **Step 5: Write and run a function-level sanity check (doesn't require Step 3 to be done yet)**
+- [x] **Step 5: Write and run a function-level sanity check (doesn't require Step 3 to be done yet)**
 
 ```ts
 // scripts/verify-claims-hook-function.ts
@@ -479,7 +479,7 @@ main();
 Run: `npx tsx scripts/verify-claims-hook-function.ts`
 Expected: `PASS: hook function stamps correct claims for an admin coach: { isAdmin: true, role: 'coach' }`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add prisma/migrations scripts/verify-claims-hook-function.ts

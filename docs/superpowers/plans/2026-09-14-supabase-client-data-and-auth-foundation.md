@@ -2447,10 +2447,15 @@ grant execute on function public.scan_check_in(text) to authenticated;
 revoke execute on function public.scan_check_in(text) from anon, public;
 ```
 
-- [ ] **Step 2: Apply the migration**
+- [ ] **Step 2: Apply the migration, then regenerate the database types**
 
 Run: `npx prisma migrate deploy`
 Expected: `1 migration found... applied.`
+
+Then, immediately after — **this step is easy to skip and the plan's original draft omitted it entirely, which would make Step 6's `tsc --noEmit` fail unconditionally**: `src/lib/supabase/database.types.ts` (generated in Task 1) has no knowledge of `scan_check_in` until it's regenerated against the now-updated live schema. Without this, `supabase.rpc("scan_check_in", ...)` in Step 3 below doesn't type-check at all (`Argument of type '"scan_check_in"' is not assignable to parameter of type '"current_coach_id" | "current_student_id" | "custom_access_token_hook" | "is_admin"'` — confirmed directly).
+
+Run: `npx supabase gen types typescript --linked > src/lib/supabase/database.types.ts`
+Expected: the diff to this file should be additive only (new `scan_check_in` function entry) — confirm with `git diff src/lib/supabase/database.types.ts` before committing that nothing else changed.
 
 - [ ] **Step 3: Write the Checkins module**
 
@@ -2514,7 +2519,7 @@ async function coachClient(email: string, password: string) {
   const { session } = await res.json();
   const client = createClient(url, anonKey);
   await client.auth.setSession(session);
-  return client;
+  return { client, session };
 }
 
 async function main() {
@@ -2525,20 +2530,66 @@ async function main() {
     where: { enrollments: { none: { class: { assignments: { some: { coachId: shiftWithCoach.coachId } } } } } },
   });
 
-  const client = await coachClient(shiftWithCoach.coach.email, "Coach123!");
+  const { client, session } = await coachClient(shiftWithCoach.coach.email, "Coach123!");
   const { data: directRead } = await client.from("Student").select("id").eq("id", unrelatedStudent.id).maybeSingle();
   if (directRead) {
     console.error("FAIL (test setup wrong): expected this student to be unreadable directly by this coach under RLS.");
     process.exit(1);
   }
 
-  const { data: rpcResult, error: rpcError } = await client.rpc("scan_check_in", { p_code: unrelatedStudent.loginCode });
-  if (rpcError || !rpcResult || (rpcResult as { outcome: string }).outcome === "error") {
+  // The raw RPC call above the client wrapper — proves the RPC itself
+  // bypasses RLS. But testing only that, once, never exercises the real,
+  // exported scanCheckIn() wrapper (its input parsing, and its mapping of
+  // every one of the RPC's 4 outcome shapes to ScanResult) or
+  // getCheckInCountForShift at all — 2 of this task's 3 client-facing
+  // pieces would otherwise have zero coverage. This drives the real
+  // functions through all of scanCheckIn's outcomes plus
+  // getCheckInCountForShift, not just "the underlying RPC works once".
+  const { scanCheckIn, getCheckInCountForShift } = await import("../src/lib/api/checkins");
+  const { supabase: sharedSupabase } = await import("../src/lib/supabase/client");
+  await sharedSupabase.auth.setSession(session);
+
+  const countBefore = await getCheckInCountForShift(shiftWithCoach.id);
+
+  const scanResult = await scanCheckIn({ code: unrelatedStudent.loginCode });
+  if (scanResult.outcome !== "checked_in" || scanResult.studentName !== unrelatedStudent.name) {
     console.error(
-      "FAIL: scan_check_in RPC should succeed for a student outside this coach's assignments, given an open shift, got",
-      rpcError,
-      rpcResult,
+      "FAIL: scanCheckIn should return checked_in with the student's name for a student outside this coach's assignments, given an open shift, got",
+      scanResult,
     );
+    process.exit(1);
+  }
+
+  // getCheckInCountForShift-equivalent: the count for this shift should
+  // have gone up by exactly one after the scan above.
+  const countAfter = await getCheckInCountForShift(shiftWithCoach.id);
+  if (countAfter !== countBefore + 1) {
+    console.error(`FAIL: getCheckInCountForShift should increase by 1 after a scan, went from ${countBefore} to ${countAfter}.`);
+    process.exit(1);
+  }
+
+  // already_checked_in-equivalent: scanning the exact same student again
+  // (same day, same venue) is the RPC's own documented no-op path — never
+  // exercised by the original draft.
+  const rescanResult = await scanCheckIn({ code: unrelatedStudent.loginCode });
+  if (rescanResult.outcome !== "already_checked_in" || rescanResult.studentName !== unrelatedStudent.name) {
+    console.error("FAIL: scanCheckIn should return already_checked_in (not a fresh check-in or an error) on a same-day rescan, got", rescanResult);
+    process.exit(1);
+  }
+
+  // Confirms the rescan above genuinely took the no-op branch (no second
+  // CheckIn row), not silently succeeded via some other path.
+  const countAfterRescan = await getCheckInCountForShift(shiftWithCoach.id);
+  if (countAfterRescan !== countAfter) {
+    console.error(`FAIL: a same-day rescan should not create a second CheckIn row, count went from ${countAfter} to ${countAfterRescan}.`);
+    process.exit(1);
+  }
+
+  // not_found-equivalent — a login code that can't belong to any real
+  // student (LOGIN_CODE_ALPHABET excludes 0/1/I/O, so this is unambiguous).
+  const notFoundResult = await scanCheckIn({ code: "000000" });
+  if (notFoundResult.outcome !== "not_found") {
+    console.error("FAIL: scanCheckIn should return not_found for a code that matches no student, got", notFoundResult);
     process.exit(1);
   }
 
@@ -2556,15 +2607,37 @@ async function main() {
   const noShiftCoach = await prisma.coach.findFirstOrThrow({
     where: { email: { not: shiftWithCoach.coach.email }, shifts: { none: { status: "OPEN" } } },
   });
-  const noShiftClient = await coachClient(noShiftCoach.email, "Coach123!");
-  const { data: noShiftResult } = await noShiftClient.rpc("scan_check_in", { p_code: unrelatedStudent.loginCode });
-  if ((noShiftResult as { outcome: string })?.outcome !== "error") {
-    console.error("FAIL: scan_check_in should return an error outcome for a coach with no open shift, got", noShiftResult);
+  const { session: noShiftSession } = await coachClient(noShiftCoach.email, "Coach123!");
+  await sharedSupabase.auth.setSession(noShiftSession);
+  const noShiftResult = await scanCheckIn({ code: unrelatedStudent.loginCode });
+  if (noShiftResult.outcome !== "error") {
+    console.error("FAIL: scanCheckIn should return an error outcome for a coach with no open shift, got", noShiftResult);
     process.exit(1);
   }
 
+  await sharedSupabase.auth.signOut();
+
+  // This script's own scan created exactly one CheckIn row (the
+  // already_checked_in re-scan above is a deliberate no-op — see the RPC's
+  // dedup logic — so it never creates a second). Unlike Venue/Class/Coach
+  // creation elsewhere in this plan, that row is scoped to a specific
+  // (student, venue, day) triple that this script's own fixture selection
+  // will very likely land on again next run (same deterministic
+  // shiftWithCoach/unrelatedStudent lookups) — left uncleaned, re-running
+  // this script again on the *same day* would hit already_checked_in on
+  // its very first scan instead of checked_in, failing the first
+  // assertion. Delete by the exact (studentId, venueId, checkInDate)
+  // triple only — not a broader filter — so a genuine, differently-dated
+  // seed CheckIn for this same student+venue is never touched.
+  await prisma.checkIn.deleteMany({
+    where: { studentId: unrelatedStudent.id, venueId: shiftWithCoach.venueId, checkInDate: (await import("../src/lib/dates")).getSingaporeTodayString() },
+  });
+
   await prisma.$disconnect();
-  console.log("PASS: scan_check_in RPC bypasses the Student RLS gap correctly (only for a coach with an open shift) and rejects otherwise");
+  console.log(
+    "PASS: scan_check_in RPC bypasses the Student RLS gap correctly (only for a coach with an open shift); " +
+      "scanCheckIn/getCheckInCountForShift correctly handle checked_in, already_checked_in, not_found, and the no-open-shift error",
+  );
 }
 
 main();

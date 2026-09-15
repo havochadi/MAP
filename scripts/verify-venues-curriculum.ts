@@ -32,6 +32,22 @@ async function main() {
     process.exit(1);
   }
 
+  // The rejection case above only proves half of createVenue's two
+  // outcomes (ActionResult is success|failure) — the allowed path,
+  // including the .insert().select() interaction (a separate SELECT
+  // policy is needed for the inserted row to come back even when the
+  // INSERT itself is permitted), is unverified without this.
+  const admin = await coachClient("admin@map.test", "Coach123!");
+  const { data: createdVenue, error: adminWriteError } = await admin
+    .from("Venue")
+    .insert({ id: crypto.randomUUID(), name: "Verify RLS Venue" })
+    .select("id")
+    .single();
+  if (adminWriteError || !createdVenue) {
+    console.error("FAIL: createVenue-equivalent should succeed for an admin, got", adminWriteError, createdVenue);
+    process.exit(1);
+  }
+
   const { data: combos, error: combosError } = await farhan
     .from("CurriculumTopic")
     .select("subject, level")
@@ -51,7 +67,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("PASS: Venues and Curriculum queries work correctly for a signed-in coach; venue insert is admin-gated by RLS");
+  console.log("PASS: Venues and Curriculum queries work correctly for a signed-in coach; venue insert succeeds for admin and is rejected for a non-admin");
 }
 
 main();

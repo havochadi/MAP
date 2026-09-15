@@ -1814,6 +1814,16 @@ async function main() {
   }
   await sharedSupabase.auth.signOut();
 
+  // Hard-delete the enrollment this run created (via Prisma, which bypasses
+  // RLS — fine for teardown in a verification script). Unlike Venue/Class/
+  // Coach creation elsewhere in this plan, "a class this student has never
+  // had any Enrollment row for" is a scarce, shared resource across repeated
+  // runs of this exact script (only as many classes exist in the DB) — left
+  // uncleaned, every run permanently consumes one, and the pool eventually
+  // hits zero and this script starts hard-failing on a future run (a real
+  // failure hit during this plan's own execution — confirmed empirically).
+  await prisma.enrollment.delete({ where: { id: enrollmentId } });
+
   await prisma.$disconnect();
   console.log(
     "PASS: Students module scopes profile/list visibility correctly under RLS (including the CheckIn+Venue embed); " +

@@ -1629,6 +1629,33 @@ async function main() {
     process.exit(1);
   }
 
+  // getStudentProfile's CheckIn+Venue embed had zero coverage — CheckIn
+  // has its own, materially more restrictive RLS policy than Student's
+  // (admin, or the coach whose own shift recorded it, or the student
+  // themself — prisma/migrations/20260914110527_rls_checkin_tables/
+  // migration.sql), so nothing else would catch a wrong relationship name
+  // or embed path here. Uses admin, which always sees every CheckIn, to
+  // prove the query shape itself is correct — RLS narrowing it further for
+  // a non-recording coach is the spec's intended behavior (flagged above
+  // for Plan 2b), not a defect to re-verify here.
+  const checkInFixture = await prisma.checkIn.findFirst({ include: { venue: true } });
+  if (!checkInFixture) {
+    throw new Error("No CheckIn found in seed data — cannot test getStudentProfile's CheckIn+Venue embed.");
+  }
+  const { data: adminCheckIns, error: adminCheckInsError } = await admin
+    .from("CheckIn")
+    .select("*, venue:Venue(*)")
+    .eq("studentId", checkInFixture.studentId)
+    .order("checkInDate", { ascending: false });
+  if (adminCheckInsError || !adminCheckIns || adminCheckIns.length === 0 || !adminCheckIns[0].venue?.name) {
+    console.error(
+      "FAIL: getStudentProfile-equivalent's CheckIn+Venue embed should return rows with venue joined for admin, got",
+      adminCheckInsError,
+      adminCheckIns,
+    );
+    process.exit(1);
+  }
+
   // regenerateLoginCode-equivalent had zero coverage — rejection then
   // success, same admin-only policy as above. Saves and restores the
   // original code afterward so this doesn't disturb any other script that
@@ -1661,13 +1688,18 @@ async function main() {
     process.exit(1);
   }
 
-  const { error: restoreCodeError } = await admin
+  // .select() + emptiness check, not just `error` — same RLS-blocked-write
+  // gotcha as every other write in this file. Without it, a silently
+  // blocked restore (error: null) would print PASS while leaving the
+  // student's loginCode permanently stuck at tempLoginCode.
+  const { data: restoreCodeResult, error: restoreCodeError } = await admin
     .from("Student")
     .update({ loginCode: studentBeforeCodeChange.loginCode })
-    .eq("id", targetStudentId);
-  if (restoreCodeError) {
+    .eq("id", targetStudentId)
+    .select("id");
+  if (restoreCodeError || !restoreCodeResult || restoreCodeResult.length === 0) {
     throw new Error(
-      `Restoring the original loginCode after the regenerateLoginCode check failed: ${JSON.stringify(restoreCodeError)}. ` +
+      `Restoring the original loginCode after the regenerateLoginCode check failed: ${JSON.stringify(restoreCodeError)}, rows affected: ${restoreCodeResult?.length ?? 0}. ` +
         `The target student's loginCode may now be "${tempLoginCode}" instead of its original value — fix manually.`,
     );
   }
@@ -1720,9 +1752,73 @@ async function main() {
     process.exit(1);
   }
 
+  // The raw-query RLS coverage above never touches either function's own
+  // JS business logic (the "already enrolled" short-circuit and the
+  // reactivate-a-DROPPED-enrollment branch) — both are pure application
+  // logic with no DB-level backstop (unlike loginCode's uniqueness, which
+  // the DB enforces independently). This calls the real, exported
+  // functions directly (same pattern as Task 6's createCoach test) to
+  // actually exercise that logic, not just RLS.
+  //
+  // MAX_ACTIVE_ENROLLMENTS's cap branch is deliberately not covered here —
+  // constructing a deterministic 3-active-enrollment fixture would add
+  // disproportionate script complexity for one more isolated, easily
+  // hand-verified line of code (students.ts's own `if ((activeCount ?? 0)
+  // >= MAX_ACTIVE_ENROLLMENTS)` check). Ruling, not an oversight.
+  const { enrollStudentInClass, dropEnrollment } = await import("../src/lib/api/students");
+  const { supabase: sharedSupabase } = await import("../src/lib/supabase/client");
+  const adminLoginRes = await fetch(loginUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${anonKey}` },
+    body: JSON.stringify({ email: "admin@map.test", password: "Coach123!" }),
+  });
+  const { session: adminSession } = await adminLoginRes.json();
+  await sharedSupabase.auth.setSession(adminSession);
+
+  // "Already enrolled" branch: targetStudentId is still ACTIVE in
+  // assignment.classId (untouched by every check above).
+  const alreadyEnrolledResult = await enrollStudentInClass({ studentId: targetStudentId, classId: assignment.classId });
+  if (alreadyEnrolledResult.success || alreadyEnrolledResult.error !== "Already enrolled in this class.") {
+    console.error("FAIL: enrollStudentInClass should reject an already-ACTIVE enrollment with its specific message, got", alreadyEnrolledResult);
+    process.exit(1);
+  }
+
+  // Reactivation branch: the enrollment in enrollTargetClass is DROPPED
+  // (the raw-query test above set it that way) — enrolling again through
+  // the real function should reactivate that row, not error on a
+  // duplicate (Enrollment's unique index is on (studentId, classId)
+  // regardless of status).
+  const reactivateResult = await enrollStudentInClass({ studentId: targetStudentId, classId: enrollTargetClass.id });
+  if (!reactivateResult.success) {
+    console.error("FAIL: enrollStudentInClass should reactivate a DROPPED enrollment instead of erroring, got", reactivateResult);
+    process.exit(1);
+  }
+
+  // dropEnrollment, for real this time (not a raw update) — drops the
+  // enrollment enrollStudentInClass just reactivated, leaving the target
+  // student's enrollment state exactly as the raw-query tests above left
+  // it (DROPPED in enrollTargetClass, ACTIVE in assignment.classId only).
+  const { data: reactivatedEnrollment } = await sharedSupabase
+    .from("Enrollment")
+    .select("id")
+    .eq("studentId", targetStudentId)
+    .eq("classId", enrollTargetClass.id)
+    .maybeSingle();
+  if (!reactivatedEnrollment) {
+    throw new Error("Could not find the enrollment enrollStudentInClass just reactivated.");
+  }
+  const dropResult = await dropEnrollment({ enrollmentId: reactivatedEnrollment.id });
+  if (!dropResult.success) {
+    console.error("FAIL: dropEnrollment should succeed for an admin, got", dropResult);
+    process.exit(1);
+  }
+  await sharedSupabase.auth.signOut();
+
   await prisma.$disconnect();
   console.log(
-    "PASS: Students module scopes profile/list visibility correctly under RLS; regenerateLoginCode/enrollStudentInClass/dropEnrollment/updateStudentStatus are all admin-gated (both outcomes each)",
+    "PASS: Students module scopes profile/list visibility correctly under RLS (including the CheckIn+Venue embed); " +
+      "regenerateLoginCode/enrollStudentInClass/dropEnrollment/updateStudentStatus are all admin-gated (both outcomes each), " +
+      "and enrollStudentInClass's already-enrolled/reactivation branches behave correctly",
   );
 }
 

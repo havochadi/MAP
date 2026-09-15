@@ -39,6 +39,31 @@ export async function getAllCoachesForSelect() {
   return data;
 }
 
+// supabase-js's functions.invoke() never populates `data` on a non-2xx
+// response — it throws internally and returns { data: null, error } before
+// the body is ever parsed as JSON (confirmed against
+// @supabase/functions-js's FunctionsClient: the catch block always returns
+// data: null). The Edge Function's actual { error: "..." } body only
+// exists inside error.context, a raw, single-read Response — so `data?.error`
+// is permanently unreachable dead code, and every failure (a taken email,
+// "Admin access required.", bad input) would otherwise surface as the same
+// generic fallback message instead of admin-create-coach's specific one.
+async function edgeFunctionErrorMessage(error: unknown, fallback: string): Promise<string> {
+  if (error && typeof error === "object" && "context" in error) {
+    const context = (error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      try {
+        const body = await context.clone().json();
+        if (typeof body?.error === "string") return body.error;
+      } catch {
+        // Response body wasn't JSON (e.g. a network-level FunctionsFetchError
+        // with no HTTP response at all) — fall through to the fallback.
+      }
+    }
+  }
+  return fallback;
+}
+
 export async function createCoach(input: unknown): Promise<ActionResult<{ coachId: string }>> {
   const parsed = createCoachSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: "Invalid input." };
@@ -46,7 +71,9 @@ export async function createCoach(input: unknown): Promise<ActionResult<{ coachI
   const { data, error } = await supabase.functions.invoke<{ coachId?: string; error?: string }>("admin-create-coach", {
     body: parsed.data,
   });
-  if (error || !data?.coachId) return { success: false, error: data?.error ?? "Could not create coach." };
+  if (error || !data?.coachId) {
+    return { success: false, error: await edgeFunctionErrorMessage(error, "Could not create coach.") };
+  }
   return { success: true, data: { coachId: data.coachId } };
 }
 

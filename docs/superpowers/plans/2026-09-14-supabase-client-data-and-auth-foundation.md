@@ -3322,10 +3322,15 @@ grant execute on function public.register_and_checkin_student(jsonb) to authenti
 revoke execute on function public.register_and_checkin_student(jsonb) from anon, public;
 ```
 
-- [ ] **Step 2: Apply the migration**
+- [ ] **Step 2: Apply the migration, then regenerate the database types**
 
 Run: `npx prisma migrate deploy`
 Expected: `1 migration found... applied.`
+
+Then, immediately after — **same easy-to-skip step Task 9 needed, and the plan's original draft omitted it here too**: `src/lib/supabase/database.types.ts` has no knowledge of `register_and_checkin_student` until it's regenerated. Without this, `supabase.rpc("register_and_checkin_student", ...)` in Step 3 below doesn't type-check at all, and Step 5's `tsc --noEmit` fails unconditionally.
+
+Run: `npx supabase gen types typescript --linked > src/lib/supabase/database.types.ts`
+Expected: the diff to this file should be additive only (new `register_and_checkin_student` function entry) — confirm with `git diff src/lib/supabase/database.types.ts` before committing that nothing else changed.
 
 - [ ] **Step 3: Write the Registration module**
 
@@ -3374,22 +3379,29 @@ import { PrismaClient } from "../src/generated/prisma/client";
 
 const url = process.env.SUPABASE_URL!;
 const anonKey = process.env.SUPABASE_ANON_KEY!;
+const loginUrl = `${url}/functions/v1/coach-login`;
 const prisma = new PrismaClient();
 
-const SAMPLE_STUDENT = {
-  name: "Verify Registration Module",
-  level: "P4",
-  contactNumber: "91234567",
-  schoolName: "Test Primary School",
-  email: `verify-registration-${Date.now()}@example.com`,
-  isMapStudent: true,
-  emergencyContactName: "Test Guardian",
-  emergencyContactRelationship: "MOTHER",
-  emergencyContactPhone: "91234567",
-};
+function sampleStudentInput(emailSuffix: string, isMapStudent: "true" | "false" = "true") {
+  return {
+    name: "Verify Registration Module",
+    level: "P4",
+    contactNumber: "91234567",
+    schoolName: "Test Primary School",
+    email: `verify-registration-${emailSuffix}-${Date.now()}@example.com`,
+    // registerStudentSchema requires the literal string "true"/"false" (a
+    // FormData-submission convention, per this task's own note), not a
+    // real boolean — passing an actual boolean here would fail Zod
+    // validation and never reach the Edge Function/RPC at all.
+    isMapStudent,
+    emergencyContactName: "Test Guardian",
+    emergencyContactRelationship: "MOTHER",
+    emergencyContactPhone: "91234567",
+  };
+}
 
 async function coachClient(email: string, password: string) {
-  const res = await fetch(`${url}/functions/v1/coach-login`, {
+  const res = await fetch(loginUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${anonKey}` },
     body: JSON.stringify({ email, password }),
@@ -3397,56 +3409,106 @@ async function coachClient(email: string, password: string) {
   const { session } = await res.json();
   const client = createClient(url, anonKey);
   await client.auth.setSession(session);
-  return client;
+  return session;
 }
 
 async function main() {
-  const anon = createClient(url, anonKey);
-  const { data: fnData, error: fnError } = await anon.functions.invoke("register-student", { body: SAMPLE_STUDENT });
-  if (fnError || !fnData?.studentId) {
-    console.error("FAIL: registerStudent-equivalent (unauthenticated) should succeed, got", fnError, fnData);
+  const { registerStudent, registerAndCheckInStudent } = await import("../src/lib/api/registration");
+  const { supabase: sharedSupabase } = await import("../src/lib/supabase/client");
+
+  // registerStudent-equivalent: the real, exported function (not just a
+  // raw Edge Function invoke) — validation, then the actual Edge Function
+  // call. Unauthenticated is correct — register-student is public.
+  const registerResult = await registerStudent(sampleStudentInput("public"));
+  if (!registerResult.success) {
+    console.error("FAIL: registerStudent should succeed for a valid, unauthenticated registration, got", registerResult);
     process.exit(1);
   }
 
-  const openShiftCoach = await prisma.coach.findFirst({ where: { shifts: { some: { status: "OPEN" } } } });
-  if (!openShiftCoach) {
-    console.log("(no coach with an OPEN shift in seed data — skipping registerAndCheckInStudent-equivalent's success path)");
-  } else {
-    const client = await coachClient(openShiftCoach.email, "Coach123!");
-    const { data: rpcData, error: rpcError } = await client.rpc("register_and_checkin_student", {
-      p_student: { ...SAMPLE_STUDENT, email: `verify-registration-checkin-${Date.now()}@example.com` },
-    });
-    const rpcResult = rpcData as { studentId?: string; loginCode?: string; error?: string } | null;
-    if (rpcError || !rpcResult?.studentId) {
-      console.error("FAIL: register_and_checkin_student should succeed for a coach with an open shift, got", rpcError, rpcResult);
-      process.exit(1);
-    }
-    const notification = await prisma.checkInNotification.findFirst({ where: { studentId: rpcResult.studentId } });
-    if (!notification) {
-      console.error("FAIL: register_and_checkin_student should have created a CheckInNotification for a MAP student.");
-      process.exit(1);
-    }
+  // registerStudent-equivalent rejection: invalid input never reaches the
+  // Edge Function at all.
+  const invalidResult = await registerStudent({ ...sampleStudentInput("invalid"), name: "" });
+  if (invalidResult.success) {
+    console.error("FAIL: registerStudent should reject invalid input before calling the Edge Function, got", invalidResult);
+    process.exit(1);
   }
 
-  const noShiftCoach = await prisma.coach.findFirstOrThrow({ where: { shifts: { none: { status: "OPEN" } } } });
-  const noShiftClient = await coachClient(noShiftCoach.email, "Coach123!");
-  const { data: deniedData } = await noShiftClient.rpc("register_and_checkin_student", {
-    p_student: { ...SAMPLE_STUDENT, email: `verify-registration-denied-${Date.now()}@example.com` },
+  // registerAndCheckInStudent needs a coach with an OPEN shift. clockIn
+  // only accepts shifts scheduled for today's real day-of-week (Task 8) —
+  // an unrelated, unnecessary dependency for testing this RPC specifically
+  // (Task 8 already thoroughly tests clockIn itself). Creates the fixture
+  // shift directly via Prisma Client instead (id/updatedAt auto-handled by
+  // Prisma Client itself, unlike a raw supabase-js insert — this bypass
+  // only applies when going through Prisma, which this setup step does).
+  const testCoach = await prisma.coach.findFirstOrThrow({ where: { isAdmin: false, shifts: { none: { status: "OPEN" } } } });
+  const testVenue = await prisma.venue.findFirstOrThrow();
+  const today = new Date().toISOString().slice(0, 10);
+  const testShift = await prisma.coachShift.create({
+    data: { coachId: testCoach.id, venueId: testVenue.id, shiftBlock: "WEEKDAY_EVENING", shiftDate: today, clockInAt: new Date(), status: "OPEN" },
   });
-  if ((deniedData as { studentId?: string } | null)?.studentId) {
-    console.error("FAIL: register_and_checkin_student should be rejected for a coach with no open shift, got", deniedData);
+
+  const coachSession = await coachClient(testCoach.email, "Coach123!");
+  await sharedSupabase.auth.setSession(coachSession);
+
+  // registerAndCheckInStudent-equivalent success, MAP student
+  const checkinResult = await registerAndCheckInStudent(sampleStudentInput("checkin-map"));
+  if (!checkinResult.success) {
+    console.error("FAIL: registerAndCheckInStudent should succeed for a coach with an open shift, got", checkinResult);
     process.exit(1);
   }
+  const notification = await prisma.checkInNotification.findFirst({ where: { studentId: checkinResult.data.studentId } });
+  if (!notification) {
+    console.error("FAIL: registerAndCheckInStudent should have created a CheckInNotification for a MAP student, found none.");
+    process.exit(1);
+  }
+
+  // registerAndCheckInStudent-equivalent success, non-MAP student — the
+  // same atomic-insert function's other branch (no CheckInNotification).
+  const checkinNonMapResult = await registerAndCheckInStudent(sampleStudentInput("checkin-nonmap", "false"));
+  if (!checkinNonMapResult.success) {
+    console.error("FAIL: registerAndCheckInStudent should succeed for a non-MAP student too, got", checkinNonMapResult);
+    process.exit(1);
+  }
+  const nonMapNotification = await prisma.checkInNotification.findFirst({ where: { studentId: checkinNonMapResult.data.studentId } });
+  if (nonMapNotification) {
+    console.error("FAIL: registerAndCheckInStudent should NOT create a CheckInNotification for a non-MAP student, found one.");
+    process.exit(1);
+  }
+
+  // registerAndCheckInStudent-equivalent rejection: a coach with no open shift.
+  const noShiftCoach = await prisma.coach.findFirstOrThrow({
+    where: { isAdmin: false, id: { not: testCoach.id }, shifts: { none: { status: "OPEN" } } },
+  });
+  const noShiftSession = await coachClient(noShiftCoach.email, "Coach123!");
+  await sharedSupabase.auth.setSession(noShiftSession);
+  const deniedResult = await registerAndCheckInStudent(sampleStudentInput("denied"));
+  if (deniedResult.success) {
+    console.error("FAIL: registerAndCheckInStudent should be rejected for a coach with no open shift, got", deniedResult);
+    process.exit(1);
+  }
+
+  await sharedSupabase.auth.signOut();
+
+  // Teardown: the two students this run's register_and_checkin_student
+  // calls created (their CheckIn/CheckInNotification rows cascade with
+  // them), plus the registerStudent-only student and the fixture shift —
+  // each by its own exact id, not a broader filter.
+  await prisma.student.deleteMany({
+    where: { id: { in: [registerResult.data.studentId, checkinResult.data.studentId, checkinNonMapResult.data.studentId] } },
+  });
+  await prisma.coachShift.delete({ where: { id: testShift.id } });
 
   await prisma.$disconnect();
-  console.log("PASS: registerStudent (public) and register_and_checkin_student (open-shift-gated) both work correctly");
+  console.log(
+    "PASS: registerStudent (public, both outcomes) and registerAndCheckInStudent (open-shift-gated, both MAP and non-MAP students, both outcomes) all work correctly",
+  );
 }
 
 main();
 ```
 
 Run: `npx tsx scripts/verify-registration-module.ts`
-Expected: `PASS: registerStudent (public) and register_and_checkin_student (open-shift-gated) both work correctly`
+Expected: `PASS: registerStudent (public, both outcomes) and registerAndCheckInStudent (open-shift-gated, both MAP and non-MAP students, both outcomes) all work correctly`
 
 - [ ] **Step 5: Confirm the app still builds**
 

@@ -763,6 +763,7 @@ export type Database = {
       current_student_id: { Args: never; Returns: string }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       is_admin: { Args: never; Returns: boolean }
+      scan_check_in: { Args: { p_code: string }; Returns: Json }
     }
     Enums: {
       AttendanceStatus: "PRESENT" | "ABSENT" | "LATE"

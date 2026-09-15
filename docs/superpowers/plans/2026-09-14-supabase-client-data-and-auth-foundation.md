@@ -2703,7 +2703,11 @@ export async function getRosterWithSession(classId: string, sessionDate: string)
   if (sessionError) throw sessionError;
   if (!cls) return null;
 
-  let sessionWithCoach: (typeof session & { markedByCoach: { id: string; name: string; isAdmin: boolean } | null }) | null = null;
+  // coach_public is a view — PostgREST's generated types mark every view
+  // column nullable regardless of the underlying data's real nullability
+  // (same reasoning as Task 5/6's coach_public usage), so this annotation
+  // must allow null fields even though a matched row never actually has one.
+  let sessionWithCoach: (typeof session & { markedByCoach: { id: string | null; name: string | null; isAdmin: boolean | null } | null }) | null = null;
   if (session) {
     const { data: coach } = session.markedByCoachId
       ? await supabase.from("coach_public").select("id, name, isAdmin").eq("id", session.markedByCoachId).maybeSingle()
@@ -2812,25 +2816,59 @@ export async function markAttendanceRecord(
   if (!parsed.success) return { success: false, error: "Invalid input." };
   const { classId, sessionDate, studentId, status, excused, remarks } = parsed.data;
 
-  // Upsert on (classId, sessionDate) so double-tapping/double-submitting
-  // is safe — same reasoning as the old Prisma version.
-  const { data: session, error: sessionError } = await supabase
+  // Find-or-create on (classId, sessionDate), not a single upsert call —
+  // id has no Postgres-level default (same gotcha as every other insert in
+  // this plan), but supplying it unconditionally in an upsert payload makes
+  // PostgREST's ON CONFLICT DO UPDATE also overwrite the id column on every
+  // subsequent call for the same (classId, sessionDate). Confirmed
+  // empirically against the live project: this silently churns the
+  // session's primary key on every student marked (AttendanceRecord's ON
+  // UPDATE CASCADE keeps referential integrity intact either way, but any
+  // client caching the session id across marks — e.g. to later call
+  // reopenAttendanceSession — would see it go stale on every subsequent
+  // mark in the same session). Select first, then insert-or-update
+  // explicitly so the id is only ever set once, at creation.
+  const { data: existingSession } = await supabase
     .from("AttendanceSession")
-    .upsert({ classId, sessionDate, markedByCoachId: coachId }, { onConflict: "classId,sessionDate" })
     .select("*")
+    .eq("classId", classId)
+    .eq("sessionDate", sessionDate)
     .maybeSingle();
+
+  const { data: session, error: sessionError } = existingSession
+    ? await supabase.from("AttendanceSession").update({ markedByCoachId: coachId }).eq("id", existingSession.id).select("*").maybeSingle()
+    : await supabase
+        .from("AttendanceSession")
+        .insert({ id: crypto.randomUUID(), classId, sessionDate, markedByCoachId: coachId, updatedAt: new Date().toISOString() })
+        .select("*")
+        .maybeSingle();
   if (sessionError || !session) return { success: false, error: "You don't have access to this class." };
 
   if (session.submittedAt) {
     return { success: false, error: "This session is locked — reopen it to make changes." };
   }
 
-  const { error: recordError } = await supabase
+  // Same id-churning concern as above — re-tapping the same student's
+  // status (a supported flow, per the schema's own comment on this unique
+  // key) must not change the AttendanceRecord row's id either.
+  const { data: existingRecord } = await supabase
     .from("AttendanceRecord")
-    .upsert(
-      { attendanceSessionId: session.id, studentId, status, excused: excused ?? false, remarks },
-      { onConflict: "attendanceSessionId,studentId" },
-    );
+    .select("id")
+    .eq("attendanceSessionId", session.id)
+    .eq("studentId", studentId)
+    .maybeSingle();
+
+  const { error: recordError } = existingRecord
+    ? await supabase.from("AttendanceRecord").update({ status, excused: excused ?? false, remarks }).eq("id", existingRecord.id)
+    : await supabase.from("AttendanceRecord").insert({
+        id: crypto.randomUUID(),
+        attendanceSessionId: session.id,
+        studentId,
+        status,
+        excused: excused ?? false,
+        remarks,
+        updatedAt: new Date().toISOString(),
+      });
   if (recordError) return { success: false, error: "Could not save attendance." };
 
   return { success: true, data: { status, sessionId: session.id } };
@@ -2870,8 +2908,14 @@ export async function submitAttendanceSession(input: unknown): Promise<ActionRes
   // Guardians of anyone who showed up (Present/Late) get notified — Absent
   // never fires one. Best-effort: a notification failure doesn't undo the
   // already-saved attendance, it just doesn't count toward `notified`.
+  // The predicate's parameter must be inferred from session.records' own
+  // element type (not a hand-written subset) or TS falls back to the
+  // non-narrowing filter() overload — confirmed directly: an explicit
+  // { status: string } annotation here leaves `arrivals` typed with the
+  // full "PRESENT"|"ABSENT"|"LATE" union, which then fails to satisfy
+  // sendGuardianAttendanceNotification's narrower status parameter below.
   const arrivals = session.records.filter(
-    (r: { status: string }): r is { studentId: string; status: "PRESENT" | "LATE" } => r.status === "PRESENT" || r.status === "LATE",
+    (r): r is typeof r & { status: "PRESENT" | "LATE" } => r.status === "PRESENT" || r.status === "LATE",
   );
   let notified = 0;
   let skipped = 0;
@@ -2930,50 +2974,218 @@ async function coachClient(email: string, password: string) {
   const { session } = await res.json();
   const client = createClient(url, anonKey);
   await client.auth.setSession(session);
-  return client;
+  return { client, session };
 }
 
 async function main() {
-  const assignment = await prisma.classAssignment.findFirstOrThrow({ include: { coach: true } });
+  // Needs >= 2 active enrollments to meaningfully test
+  // submitAttendanceSession's "mark everyone" rule (reject with 1 of 2
+  // marked, succeed once both are).
+  const assignment = await prisma.classAssignment.findFirstOrThrow({
+    where: { class: { enrollments: { some: { status: "ACTIVE" } } } },
+    include: { coach: true, class: { include: { enrollments: { where: { status: "ACTIVE" }, include: { student: true } } } } },
+  });
   const otherCoach = await prisma.coach.findFirstOrThrow({ where: { email: { not: assignment.coach.email } } });
-  const sessionDate = "2020-01-01"; // arbitrary, unused-so-far date — avoids clashing with real seed sessions
 
-  const assignedClient = await coachClient(assignment.coach.email, "Coach123!");
-  const { data: session, error: upsertError } = await assignedClient
-    .from("AttendanceSession")
-    .upsert({ classId: assignment.classId, sessionDate, markedByCoachId: assignment.coachId }, { onConflict: "classId,sessionDate" })
-    .select("*")
-    .maybeSingle();
-  if (upsertError || !session) {
-    console.error("FAIL: markAttendanceRecord-equivalent's session upsert should succeed for the assigned coach, got", upsertError);
-    process.exit(1);
-  }
+  // Seed data has only one real active enrollment total (confirmed
+  // directly — no class has 2+), so temporarily create a second one via
+  // Prisma (setup only, not something under test — same convention as
+  // every other script's fixture lookups) for the duration of this run,
+  // then remove it in teardown. Picks a student with zero existing
+  // Enrollment rows for this class (any status) — Enrollment has a
+  // DB-level unique index on (studentId, classId), same as Task 7.
+  const existingEnrolledIds = assignment.class.enrollments.map((e) => e.studentId);
+  const alreadyLinked = await prisma.enrollment.findMany({ where: { classId: assignment.classId }, select: { studentId: true } });
+  const excludeIds = new Set([...existingEnrolledIds, ...alreadyLinked.map((e) => e.studentId)]);
+  const extraStudent = await prisma.student.findFirstOrThrow({ where: { id: { notIn: [...excludeIds] } } });
+  const extraEnrollment = await prisma.enrollment.create({
+    data: { id: crypto.randomUUID(), studentId: extraStudent.id, classId: assignment.classId, status: "ACTIVE" },
+  });
+  const students = [...assignment.class.enrollments.map((e) => e.student), extraStudent];
+  const sessionDate = "2019-06-15"; // arbitrary, unused-so-far date — avoids clashing with real seed sessions
 
-  const otherClient = await coachClient(otherCoach.email, "Coach123!");
-  const { data: blockedUpsert } = await otherClient
-    .from("AttendanceSession")
-    .upsert({ classId: assignment.classId, sessionDate, markedByCoachId: otherCoach.id }, { onConflict: "classId,sessionDate" })
-    .select("id");
-  // Either an error, or (since upsert on a visible-to-nobody-else row can
-  // itself be blocked at the INSERT-vs-UPDATE branch differently) empty data.
-  if (blockedUpsert && blockedUpsert.length > 0) {
-    const { data: reread } = await assignedClient.from("AttendanceSession").select("markedByCoachId").eq("id", session.id).single();
-    if (reread?.markedByCoachId === otherCoach.id) {
-      console.error("FAIL: a non-assigned coach's session upsert should not have applied, got", blockedUpsert, reread);
+  const { session: coachSession } = await coachClient(assignment.coach.email, "Coach123!");
+  const { markAttendanceRecord, submitAttendanceSession, reopenAttendanceSession, getRosterWithSession, getRecentSessionsForClass, buildGuardianMessage } =
+    await import("../src/lib/api/attendance");
+  const { supabase: sharedSupabase } = await import("../src/lib/supabase/client");
+  await sharedSupabase.auth.setSession(coachSession);
+
+  // markAttendanceRecord-equivalent: mark all but the last student first.
+  let firstSessionId: string | undefined;
+  for (let i = 0; i < students.length - 1; i++) {
+    const result = await markAttendanceRecord(assignment.coachId, {
+      classId: assignment.classId,
+      sessionDate,
+      studentId: students[i].id,
+      status: i === 0 ? "PRESENT" : "LATE",
+    });
+    if (!result.success) {
+      console.error(`FAIL: markAttendanceRecord should succeed for the assigned coach marking student ${i}, got`, result);
+      process.exit(1);
+    }
+    // Regression check: a naive upsert-with-a-fresh-id-every-call would
+    // silently change the session's own id on every subsequent mark
+    // (confirmed directly against the live project before this fix) —
+    // the session's identity must stay stable across every mark within it.
+    if (firstSessionId === undefined) {
+      firstSessionId = result.data.sessionId;
+    } else if (result.data.sessionId !== firstSessionId) {
+      console.error(`FAIL: markAttendanceRecord changed the session id across calls (${firstSessionId} -> ${result.data.sessionId}) — it must stay stable.`);
       process.exit(1);
     }
   }
 
-  await prisma.attendanceSession.delete({ where: { id: session.id } }); // clean up the test fixture
+  // markAttendanceRecord-equivalent rejection: a non-assigned coach.
+  const { session: otherCoachSession } = await coachClient(otherCoach.email, "Coach123!");
+  await sharedSupabase.auth.setSession(otherCoachSession);
+  const rejectedMark = await markAttendanceRecord(otherCoach.id, {
+    classId: assignment.classId,
+    sessionDate,
+    studentId: students[0].id,
+    status: "PRESENT",
+  });
+  if (rejectedMark.success) {
+    console.error("FAIL: markAttendanceRecord should be rejected for a coach not assigned to this class, got", rejectedMark);
+    process.exit(1);
+  }
+  await sharedSupabase.auth.setSession(coachSession);
+
+  // getRosterWithSession-equivalent
+  const roster = await getRosterWithSession(assignment.classId, sessionDate);
+  if (!roster || roster.roster.length !== students.length || !roster.session || roster.session.markedByCoach?.id !== assignment.coachId) {
+    console.error("FAIL: getRosterWithSession should return the full roster with a populated markedByCoach, got", roster);
+    process.exit(1);
+  }
+  const markedCount = roster.roster.filter((r) => r.record !== null).length;
+  if (markedCount !== students.length - 1) {
+    console.error(`FAIL: getRosterWithSession should show ${students.length - 1} marked records before the last student is marked, got ${markedCount}.`);
+    process.exit(1);
+  }
+
+  // submitAttendanceSession-equivalent rejection: not everyone marked yet.
+  const prematureSubmit = await submitAttendanceSession({ classId: assignment.classId, sessionDate });
+  if (prematureSubmit.success || prematureSubmit.error !== "Mark every student before saving.") {
+    console.error("FAIL: submitAttendanceSession should reject with its specific message before every student is marked, got", prematureSubmit);
+    process.exit(1);
+  }
+
+  // Mark the last student (ABSENT — deliberately not PRESENT/LATE, so the
+  // notified+skipped count below should equal students.length - 1, not
+  // students.length).
+  const lastMarkResult = await markAttendanceRecord(assignment.coachId, {
+    classId: assignment.classId,
+    sessionDate,
+    studentId: students[students.length - 1].id,
+    status: "ABSENT",
+  });
+  if (!lastMarkResult.success || lastMarkResult.data.sessionId !== firstSessionId) {
+    console.error("FAIL: marking the last student should succeed and keep the same session id, got", lastMarkResult, "expected sessionId", firstSessionId);
+    process.exit(1);
+  }
+
+  // submitAttendanceSession-equivalent success
+  const submitResult = await submitAttendanceSession({ classId: assignment.classId, sessionDate });
+  if (!submitResult.success) {
+    console.error("FAIL: submitAttendanceSession should succeed once every student is marked, got", submitResult);
+    process.exit(1);
+  }
+  const expectedNotifications = students.length - 1; // everyone except the one marked ABSENT
+  if (submitResult.data.notified + submitResult.data.skipped !== expectedNotifications) {
+    console.error(
+      `FAIL: submitAttendanceSession's notified+skipped should total ${expectedNotifications} (PRESENT/LATE marks only), got`,
+      submitResult.data,
+    );
+    process.exit(1);
+  }
+
+  // markAttendanceRecord-equivalent rejection: session is now locked.
+  const lockedMarkResult = await markAttendanceRecord(assignment.coachId, {
+    classId: assignment.classId,
+    sessionDate,
+    studentId: students[0].id,
+    status: "ABSENT",
+  });
+  if (lockedMarkResult.success || lockedMarkResult.error !== "This session is locked — reopen it to make changes.") {
+    console.error("FAIL: markAttendanceRecord should reject with its specific message on a submitted (locked) session, got", lockedMarkResult);
+    process.exit(1);
+  }
+
+  // reopenAttendanceSession-equivalent
+  const reopenResult = await reopenAttendanceSession({ sessionId: firstSessionId! });
+  if (!reopenResult.success) {
+    console.error("FAIL: reopenAttendanceSession should succeed for the assigned coach, got", reopenResult);
+    process.exit(1);
+  }
+
+  // Confirms the reopen actually unlocked it — marking again should work.
+  const postReopenMark = await markAttendanceRecord(assignment.coachId, {
+    classId: assignment.classId,
+    sessionDate,
+    studentId: students[0].id,
+    status: "LATE",
+    remarks: "verify-attendance-module: reopened and re-marked",
+  });
+  if (!postReopenMark.success) {
+    console.error("FAIL: markAttendanceRecord should succeed again after the session is reopened, got", postReopenMark);
+    process.exit(1);
+  }
+
+  // getRecentSessionsForClass-equivalent
+  const recentSessions = await getRecentSessionsForClass(assignment.classId);
+  const found = recentSessions.find((s) => s.id === firstSessionId);
+  if (!found || found._count.records !== students.length) {
+    console.error("FAIL: getRecentSessionsForClass should include the test session with the correct record count, got", found);
+    process.exit(1);
+  }
+
+  // buildGuardianMessage-equivalent (pure function, no network needed)
+  const message = buildGuardianMessage({ studentName: "Test Student", classLabel: "Test Class", status: "PRESENT", sessionDate: "2019-06-15" });
+  if (!message.includes("Test Student") || !message.includes("present") || !message.includes("Test Class")) {
+    console.error("FAIL: buildGuardianMessage should include the student name, status, and class label, got", message);
+    process.exit(1);
+  }
+
+  // sendGuardianAttendanceNotification-equivalent: already exercised
+  // end-to-end via submitAttendanceSession's internal loop above — confirm
+  // the resulting GuardianNotification rows actually exist and their
+  // delivered flags line up with each student's emergencyContactPhone.
+  const notifications = await prisma.guardianNotification.findMany({
+    where: { classId: assignment.classId, sessionDate },
+    include: { student: true },
+  });
+  if (notifications.length !== expectedNotifications) {
+    console.error(`FAIL: expected ${expectedNotifications} GuardianNotification rows (one per PRESENT/LATE student), found ${notifications.length}.`);
+    process.exit(1);
+  }
+  for (const n of notifications) {
+    if (n.delivered !== (n.student.emergencyContactPhone != null)) {
+      console.error("FAIL: GuardianNotification.delivered should match whether the student has an emergencyContactPhone on file, got", n);
+      process.exit(1);
+    }
+  }
+
+  await sharedSupabase.auth.signOut();
+
+  // Teardown: this script's own session + its records + guardian
+  // notifications, scoped by the exact (classId, sessionDate) it used —
+  // not a broader filter (see the lesson from Task 9's cleanup mistake) —
+  // plus the temporary enrollment created above, by its own exact id.
+  await prisma.guardianNotification.deleteMany({ where: { classId: assignment.classId, sessionDate } });
+  await prisma.attendanceSession.deleteMany({ where: { classId: assignment.classId, sessionDate } }); // cascades AttendanceRecord
+  await prisma.enrollment.delete({ where: { id: extraEnrollment.id } });
+
   await prisma.$disconnect();
-  console.log("PASS: Attendance module scopes session marking correctly to assigned coaches under RLS");
+  console.log(
+    "PASS: Attendance module's full lifecycle (mark -> roster -> submit -> lock -> reopen -> re-mark) behaves correctly under RLS, " +
+      "session/record ids stay stable across marks, and guardian notifications match expectations",
+  );
 }
 
 main();
 ```
 
 Run: `npx tsx scripts/verify-attendance-module.ts`
-Expected: `PASS: Attendance module scopes session marking correctly to assigned coaches under RLS`
+Expected: `PASS: Attendance module's full lifecycle (mark -> roster -> submit -> lock -> reopen -> re-mark) behaves correctly under RLS ...`
 
 - [ ] **Step 3: Confirm the app still builds**
 

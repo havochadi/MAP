@@ -930,8 +930,33 @@ async function main() {
     process.exit(1);
   }
 
+  // The rejection case above only proves half of createClass's two
+  // outcomes (ActionResult is success|failure) — the allowed path,
+  // including the .insert().select() interaction, is unverified without
+  // this (same gap class already found and fixed in Tasks 2/3/4's verify
+  // scripts — the rejected insert above never created a row, so reusing
+  // its exact field values here can't collide).
+  const admin = await coachClient("admin@map.test", "Coach123!");
+  const { data: createdClass, error: adminWriteError } = await admin
+    .from("Class")
+    .insert({
+      id: crypto.randomUUID(),
+      venueId: assignment.class.venueId,
+      subject: "MATH",
+      level: "P3",
+      dayOfWeek: "MON",
+      startTime: "16:00",
+      durationMinutes: 60,
+    })
+    .select("id")
+    .single();
+  if (adminWriteError || !createdClass) {
+    console.error("FAIL: createClass-equivalent should succeed for an admin, got", adminWriteError, createdClass);
+    process.exit(1);
+  }
+
   await prisma.$disconnect();
-  console.log("PASS: Classes module queries (list, detail with venue+enrollments+student, coach_public lookup) work; class insert is admin-gated");
+  console.log("PASS: Classes module queries (list, detail with venue+enrollments+student, coach_public lookup) work; class insert succeeds for admin and is rejected for a non-admin");
 }
 
 main();

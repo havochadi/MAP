@@ -31,6 +31,19 @@ async function main() {
   }
   await supabase.auth.signOut();
 
+  // Mirrors the coach wrong-password check above — studentLoginAction has
+  // two distinct branches (valid code -> success, invalid -> error) and
+  // only testing the success one leaves the error branch unverified
+  // against the real backend (same gap class as Task 2's coach/student
+  // asymmetry, recurring here between success/failure instead).
+  const badStudentForm = new FormData();
+  badStudentForm.set("code", "ZZZZZZ");
+  const badStudentResult = await studentLoginAction(undefined, badStudentForm);
+  if (!badStudentResult?.error) {
+    console.error("FAIL: studentLoginAction should return an error for an invalid code, got", badStudentResult);
+    process.exit(1);
+  }
+
   const quickResult = await quickLoginAction("admin");
   if (!quickResult?.success) {
     console.error("FAIL: quickLoginAction('admin') should succeed, got", quickResult);

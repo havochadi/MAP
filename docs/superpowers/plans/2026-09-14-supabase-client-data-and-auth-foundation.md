@@ -2800,10 +2800,12 @@ export async function sendGuardianAttendanceNotification(input: {
     message,
     sentAt: new Date().toISOString(),
   };
-  const { error: writeError } = existing
-    ? await supabase.from("GuardianNotification").update(row).eq("id", existing.id)
-    : await supabase.from("GuardianNotification").insert({ id: crypto.randomUUID(), ...row });
-  if (writeError) throw writeError;
+  // .select() + emptiness check, not just `error` — same RLS-blocked-write
+  // gotcha as every other write in this file.
+  const { data: notificationData, error: writeError } = existing
+    ? await supabase.from("GuardianNotification").update(row).eq("id", existing.id).select("id").maybeSingle()
+    : await supabase.from("GuardianNotification").insert({ id: crypto.randomUUID(), ...row }).select("id").maybeSingle();
+  if (writeError || !notificationData) throw writeError ?? new Error("Could not save guardian notification.");
 
   return { delivered };
 }
@@ -2858,18 +2860,30 @@ export async function markAttendanceRecord(
     .eq("studentId", studentId)
     .maybeSingle();
 
-  const { error: recordError } = existingRecord
-    ? await supabase.from("AttendanceRecord").update({ status, excused: excused ?? false, remarks }).eq("id", existingRecord.id)
-    : await supabase.from("AttendanceRecord").insert({
-        id: crypto.randomUUID(),
-        attendanceSessionId: session.id,
-        studentId,
-        status,
-        excused: excused ?? false,
-        remarks,
-        updatedAt: new Date().toISOString(),
-      });
-  if (recordError) return { success: false, error: "Could not save attendance." };
+  // .select() + emptiness check, not just `error` — an RLS-blocked update
+  // reports no error at all (see Global Constraints); matches the same
+  // pattern already used for the AttendanceSession branch above.
+  const { data: recordData, error: recordError } = existingRecord
+    ? await supabase
+        .from("AttendanceRecord")
+        .update({ status, excused: excused ?? false, remarks })
+        .eq("id", existingRecord.id)
+        .select("id")
+        .maybeSingle()
+    : await supabase
+        .from("AttendanceRecord")
+        .insert({
+          id: crypto.randomUUID(),
+          attendanceSessionId: session.id,
+          studentId,
+          status,
+          excused: excused ?? false,
+          remarks,
+          updatedAt: new Date().toISOString(),
+        })
+        .select("id")
+        .maybeSingle();
+  if (recordError || !recordData) return { success: false, error: "Could not save attendance." };
 
   return { success: true, data: { status, sessionId: session.id } };
 }

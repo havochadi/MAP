@@ -896,6 +896,41 @@ async function main() {
     process.exit(1);
   }
 
+  // getAllClassesForSelect-equivalent: the full, unfiltered class list —
+  // also gives us a class outside this coach's assignments, needed to
+  // actually prove getClassesForCoach's narrowing filter below (checking
+  // that the assignment lookup *found* the right class, above, is not the
+  // same as checking that the follow-up Class query *excludes* everything
+  // else — Class RLS is fully open (`using (true)`), so nothing else would
+  // catch a regression if that filter were ever silently dropped).
+  const { data: allClasses, error: allClassesError } = await assignedClient
+    .from("Class")
+    .select("*, venue:Venue(*)")
+    .order("level", { ascending: true });
+  if (allClassesError || !allClasses || allClasses.length === 0) {
+    console.error("FAIL: getAllClassesForSelect-equivalent should return rows, got", allClassesError, allClasses);
+    process.exit(1);
+  }
+
+  const classIds = myAssignments.map((a) => a.classId);
+  const unassignedClass = allClasses.find((c) => !classIds.includes(c.id));
+  if (!unassignedClass) {
+    throw new Error("Seed data has this coach assigned to every class — cannot prove getClassesForCoach's narrowing filter excludes anything. Pick a different coach or add more classes to seed data.");
+  }
+
+  // getClassesForCoach-equivalent's actual narrowing step (the module's
+  // .in("id", classIds) call): proving it returns exactly the coach's
+  // assigned classes, and none of the (known-to-exist) unassigned ones.
+  const { data: narrowedClasses, error: narrowedError } = await assignedClient.from("Class").select("id").in("id", classIds);
+  if (narrowedError || !narrowedClasses || narrowedClasses.length !== classIds.length) {
+    console.error("FAIL: getClassesForCoach-equivalent's narrowing query should return exactly the coach's assigned classes, got", narrowedError, narrowedClasses);
+    process.exit(1);
+  }
+  if (narrowedClasses.some((c) => c.id === unassignedClass.id)) {
+    console.error("FAIL: getClassesForCoach-equivalent's narrowing query leaked a class this coach isn't assigned to:", unassignedClass.id);
+    process.exit(1);
+  }
+
   const { data: detail, error: detailError } = await assignedClient
     .from("Class")
     .select("*, venue:Venue(*), enrollments:Enrollment(*, student:Student(*))")
@@ -913,6 +948,43 @@ async function main() {
     .eq("id", assignment.coachId);
   if (coachRowsError || !coachRows || coachRows.length !== 1) {
     console.error("FAIL: coach_public lookup for the assignment's coach should return exactly one row, got", coachRowsError, coachRows);
+    process.exit(1);
+  }
+
+  // getAllVenuesWithClassCounts-equivalent
+  const { data: venues, error: venuesError } = await assignedClient.from("Venue").select("*").order("name", { ascending: true });
+  if (venuesError || !venues || venues.length === 0) {
+    console.error("FAIL: getAllVenuesWithClassCounts-equivalent should return venue rows, got", venuesError, venues);
+    process.exit(1);
+  }
+  const venueIds = venues.map((v) => v.id);
+  const { data: venueClasses, error: venueClassesError } = await assignedClient.from("Class").select("venueId").in("venueId", venueIds);
+  const { data: venueCheckIns, error: venueCheckInsError } = await assignedClient.from("CheckIn").select("venueId").in("venueId", venueIds);
+  // CheckIn is coach-shift-scoped by RLS, so a non-admin's result here may
+  // legitimately be narrower than the true venue-wide count (empty is not
+  // a failure) — only a real error is.
+  if (venueClassesError || venueCheckInsError || !venueClasses || !venueCheckIns) {
+    console.error("FAIL: getAllVenuesWithClassCounts-equivalent's class/check-in count queries should succeed, got", venueClassesError, venueCheckInsError);
+    process.exit(1);
+  }
+
+  // getVenueWithClasses-equivalent
+  const { data: venueRow, error: venueRowError } = await assignedClient
+    .from("Venue")
+    .select("*")
+    .eq("id", assignment.class.venueId)
+    .maybeSingle();
+  if (venueRowError || !venueRow) {
+    console.error("FAIL: getVenueWithClasses-equivalent's venue lookup should return a row, got", venueRowError, venueRow);
+    process.exit(1);
+  }
+  const { data: venueClassRows, error: venueClassRowsError } = await assignedClient
+    .from("Class")
+    .select("*, enrollments:Enrollment(*)")
+    .eq("venueId", assignment.class.venueId)
+    .eq("enrollments.status", "ACTIVE");
+  if (venueClassRowsError || !venueClassRows || venueClassRows.length === 0) {
+    console.error("FAIL: getVenueWithClasses-equivalent's class lookup should return rows for the venue, got", venueClassRowsError, venueClassRows);
     process.exit(1);
   }
 
@@ -956,7 +1028,7 @@ async function main() {
   }
 
   await prisma.$disconnect();
-  console.log("PASS: Classes module queries (list, detail with venue+enrollments+student, coach_public lookup) work; class insert succeeds for admin and is rejected for a non-admin");
+  console.log("PASS: Classes module queries (list, narrowing, detail with venue+enrollments+student, coach_public lookup, venue counts, venue-with-classes) all work; class insert succeeds for admin and is rejected for a non-admin");
 }
 
 main();

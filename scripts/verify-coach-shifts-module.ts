@@ -181,6 +181,20 @@ async function main() {
       process.exit(1);
     }
 
+    // approveShift's own .eq("status","PENDING") filter exists specifically
+    // because RLS's admin `is_admin()` bypass has no status restriction —
+    // without this app-level filter, an admin could re-approve an already-
+    // APPROVED (or REJECTED) shift. Testing only a non-admin's rejection
+    // (above) doesn't prove this filter does anything, since RLS alone
+    // already blocks non-admins regardless of it. This re-approve attempt,
+    // by an admin, on the now-APPROVED shift, is the one case that actually
+    // exercises it.
+    const adminReapproveResult = await approveShift(adminRow.id, { shiftId: testShiftId });
+    if (adminReapproveResult.success) {
+      console.error("FAIL: approveShift should reject an admin re-approving an already-APPROVED shift (app-level PENDING-only filter), got", adminReapproveResult);
+      process.exit(1);
+    }
+
     const paySummary = await getPaySummary(today, today);
     if (!paySummary.some((s) => s.id === testShiftId)) {
       console.error("FAIL: getPaySummary should include the just-approved shift for today's date range.");
@@ -197,10 +211,25 @@ async function main() {
       process.exit(1);
     }
 
+    // The check above (owning coach, non-admin) is already blocked by RLS's
+    // own self-branch `using`/`with check` (status must be in OPEN,PENDING)
+    // regardless of editShift's app-level filter — it doesn't prove the
+    // filter itself does anything. An admin attempting the same edit is the
+    // scenario the filter exists for: RLS's is_admin() bypass has no status
+    // restriction, so only editShift's own .in("status", ["OPEN","PENDING"])
+    // stops an admin from editing an already-reviewed shift directly.
+    await signInShared("admin@map.test");
+    const adminEditApprovedResult = await editShift({ shiftId: testShiftId, clockInAt: new Date().toISOString(), clockOutAt: null });
+    if (adminEditApprovedResult.success) {
+      console.error("FAIL: editShift should reject an admin editing an APPROVED shift directly (app-level reopen-first filter), got", adminEditApprovedResult);
+      process.exit(1);
+    }
+
     // RLS's coach_shift_update policy is "is_admin() or (self AND status in
     // OPEN,PENDING)" on BOTH using and with check — an APPROVED shift fails
     // the self branch's using clause outright (current status isn't
     // OPEN/PENDING), so only an admin can ever reopen one.
+    await signInShared(clockInTestCoach.email);
     const selfReopenResult = await reopenShift({ shiftId: testShiftId });
     if (selfReopenResult.success) {
       console.error("FAIL: reopenShift should be rejected for the owning coach on an APPROVED shift (RLS requires admin here), got", selfReopenResult);
@@ -225,6 +254,16 @@ async function main() {
     const rejectResult = await rejectShift(adminRow.id, { shiftId: testShiftId, reviewNote: "verify-coach-shifts-module test" });
     if (!rejectResult.success) {
       console.error("FAIL: rejectShift should succeed for an admin on a PENDING shift, got", rejectResult);
+      process.exit(1);
+    }
+
+    // Same reasoning as approveShift/editShift above: rejectShift's own
+    // .eq("status","PENDING") filter is what stops an admin from
+    // re-rejecting an already-REJECTED shift — RLS's is_admin() bypass
+    // alone wouldn't. Only exercised by an admin attempting it again here.
+    const adminRerejectResult = await rejectShift(adminRow.id, { shiftId: testShiftId, reviewNote: "second attempt" });
+    if (adminRerejectResult.success) {
+      console.error("FAIL: rejectShift should reject an admin re-rejecting an already-REJECTED shift (app-level PENDING-only filter), got", adminRerejectResult);
       process.exit(1);
     }
 

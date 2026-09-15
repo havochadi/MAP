@@ -3270,9 +3270,15 @@ begin
 
   -- Unique login code: same alphabet and collision-retry shape as
   -- Plan 1's register-student Edge Function and src/lib/login-code.ts.
+  -- The alphabet is 32 characters; floor(random()*32)+1 yields {1..32},
+  -- the exact valid 1-indexed range for substr() on a 32-char string.
+  -- (floor(random()*33)+1 would yield {1..33} — substr() silently returns
+  -- '' rather than erroring when the start position exceeds the string's
+  -- length, so a 33 draw would silently truncate that character out of
+  -- the code instead of failing loudly. Confirmed by direct review.)
   for v_attempt in 1..10 loop
     v_login_code := (
-      select string_agg(substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', (floor(random() * 33) + 1)::int, 1), '')
+      select string_agg(substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', (floor(random() * 32) + 1)::int, 1), '')
       from generate_series(1, 6)
     );
     exit when not exists (select 1 from "Student" where "loginCode" = v_login_code);
@@ -3340,6 +3346,31 @@ import { supabase } from "@/lib/supabase/client";
 import { registerStudentSchema } from "@/validations/registration";
 import type { ActionResult } from "./types";
 
+// supabase-js's functions.invoke() never populates `data` on a non-2xx
+// response — it throws internally and returns { data: null, error } before
+// the body is ever parsed as JSON (same gotcha already fixed for
+// createCoach in src/lib/api/coaches.ts). The Edge Function's actual
+// { error: "..." } body only exists inside error.context, a raw,
+// single-read Response — so `data?.error` below is otherwise permanently
+// unreachable dead code, and register-student's real failure message
+// (e.g. "Registration failed.") would silently be replaced by the generic
+// fallback instead.
+async function edgeFunctionErrorMessage(error: unknown, fallback: string): Promise<string> {
+  if (error && typeof error === "object" && "context" in error) {
+    const context = (error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      try {
+        const body = await context.clone().json();
+        if (typeof body?.error === "string") return body.error;
+      } catch {
+        // Response body wasn't JSON (e.g. a network-level FunctionsFetchError
+        // with no HTTP response at all) — fall through to the fallback.
+      }
+    }
+  }
+  return fallback;
+}
+
 export async function registerStudent(input: unknown): Promise<ActionResult<{ studentId: string; loginCode: string }>> {
   const parsed = registerStudentSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: "Please check the form — something wasn't filled in correctly." };
@@ -3349,7 +3380,7 @@ export async function registerStudent(input: unknown): Promise<ActionResult<{ st
     { body: parsed.data },
   );
   if (error || !data?.studentId || !data.loginCode) {
-    return { success: false, error: data?.error ?? "Please check the form — something wasn't filled in correctly." };
+    return { success: false, error: await edgeFunctionErrorMessage(error, "Please check the form — something wasn't filled in correctly.") };
   }
   return { success: true, data: { studentId: data.studentId, loginCode: data.loginCode } };
 }
@@ -3424,6 +3455,10 @@ async function main() {
     console.error("FAIL: registerStudent should succeed for a valid, unauthenticated registration, got", registerResult);
     process.exit(1);
   }
+  if (registerResult.data.loginCode.length !== 6) {
+    console.error("FAIL: registerStudent's loginCode should always be exactly 6 characters, got", registerResult.data.loginCode);
+    process.exit(1);
+  }
 
   // registerStudent-equivalent rejection: invalid input never reaches the
   // Edge Function at all.
@@ -3456,6 +3491,13 @@ async function main() {
     console.error("FAIL: registerAndCheckInStudent should succeed for a coach with an open shift, got", checkinResult);
     process.exit(1);
   }
+  // The RPC's own login-code generator had a real off-by-one (fixed) that
+  // silently truncated ~1 in 6 codes below 6 characters instead of erroring
+  // — this is the regression guard for that class of bug.
+  if (checkinResult.data.loginCode.length !== 6) {
+    console.error("FAIL: registerAndCheckInStudent's loginCode should always be exactly 6 characters, got", checkinResult.data.loginCode);
+    process.exit(1);
+  }
   const notification = await prisma.checkInNotification.findFirst({ where: { studentId: checkinResult.data.studentId } });
   if (!notification) {
     console.error("FAIL: registerAndCheckInStudent should have created a CheckInNotification for a MAP student, found none.");
@@ -3467,6 +3509,10 @@ async function main() {
   const checkinNonMapResult = await registerAndCheckInStudent(sampleStudentInput("checkin-nonmap", "false"));
   if (!checkinNonMapResult.success) {
     console.error("FAIL: registerAndCheckInStudent should succeed for a non-MAP student too, got", checkinNonMapResult);
+    process.exit(1);
+  }
+  if (checkinNonMapResult.data.loginCode.length !== 6) {
+    console.error("FAIL: registerAndCheckInStudent's loginCode should always be exactly 6 characters, got", checkinNonMapResult.data.loginCode);
     process.exit(1);
   }
   const nonMapNotification = await prisma.checkInNotification.findFirst({ where: { studentId: checkinNonMapResult.data.studentId } });

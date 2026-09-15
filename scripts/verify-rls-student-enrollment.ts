@@ -43,7 +43,14 @@ async function main() {
     // script rather than touching the general seed script. Prisma
     // connects as the DB owner, so this bypasses RLS regardless of the
     // policies just added.
-    assignment = assignment ?? (await prisma.classAssignment.findFirst({ include: { class: { include: { enrollments: true } }, coach: true } }));
+    assignment =
+      assignment ??
+      (await prisma.classAssignment.findFirst({
+        include: {
+          class: { include: { enrollments: { where: { status: "ACTIVE" }, include: { student: true } } } },
+          coach: true,
+        },
+      }));
     if (!assignment) throw new Error("No ClassAssignment found in seed data at all — cannot run this check.");
     const student = await prisma.student.findFirst({ where: { enrollments: { none: {} } } });
     if (!student) throw new Error("No unenrolled student found to create a fixture Enrollment with.");

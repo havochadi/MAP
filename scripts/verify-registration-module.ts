@@ -49,6 +49,10 @@ async function main() {
     console.error("FAIL: registerStudent should succeed for a valid, unauthenticated registration, got", registerResult);
     process.exit(1);
   }
+  if (registerResult.data.loginCode.length !== 6) {
+    console.error("FAIL: registerStudent's loginCode should always be exactly 6 characters, got", registerResult.data.loginCode);
+    process.exit(1);
+  }
 
   // registerStudent-equivalent rejection: invalid input never reaches the
   // Edge Function at all.
@@ -81,6 +85,13 @@ async function main() {
     console.error("FAIL: registerAndCheckInStudent should succeed for a coach with an open shift, got", checkinResult);
     process.exit(1);
   }
+  // The RPC's own login-code generator had a real off-by-one (fixed) that
+  // silently truncated ~1 in 6 codes below 6 characters instead of erroring
+  // — this is the regression guard for that class of bug.
+  if (checkinResult.data.loginCode.length !== 6) {
+    console.error("FAIL: registerAndCheckInStudent's loginCode should always be exactly 6 characters, got", checkinResult.data.loginCode);
+    process.exit(1);
+  }
   const notification = await prisma.checkInNotification.findFirst({ where: { studentId: checkinResult.data.studentId } });
   if (!notification) {
     console.error("FAIL: registerAndCheckInStudent should have created a CheckInNotification for a MAP student, found none.");
@@ -92,6 +103,10 @@ async function main() {
   const checkinNonMapResult = await registerAndCheckInStudent(sampleStudentInput("checkin-nonmap", "false"));
   if (!checkinNonMapResult.success) {
     console.error("FAIL: registerAndCheckInStudent should succeed for a non-MAP student too, got", checkinNonMapResult);
+    process.exit(1);
+  }
+  if (checkinNonMapResult.data.loginCode.length !== 6) {
+    console.error("FAIL: registerAndCheckInStudent's loginCode should always be exactly 6 characters, got", checkinNonMapResult.data.loginCode);
     process.exit(1);
   }
   const nonMapNotification = await prisma.checkInNotification.findFirst({ where: { studentId: checkinNonMapResult.data.studentId } });

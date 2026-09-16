@@ -1,8 +1,17 @@
+"use client";
+
 import { LogOut, GraduationCap } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { signOutAction } from "@/actions/coaches";
+import { signOut } from "@/lib/supabase/session";
 
 export function StudentTopBar({ name }: { name: string }) {
+  const router = useRouter();
+  async function handleSignOut() {
+    await signOut();
+    router.push("/login");
+  }
+
   return (
     <header className="border-b bg-white/60">
       <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-4">
@@ -15,11 +24,9 @@ export function StudentTopBar({ name }: { name: string }) {
             <p className="text-base font-semibold">{name}</p>
           </div>
         </div>
-        <form action={signOutAction}>
-          <Button type="submit" variant="ghost" size="icon" aria-label="Sign out">
-            <LogOut className="size-4" aria-hidden="true" />
-          </Button>
-        </form>
+        <Button type="button" variant="ghost" size="icon" aria-label="Sign out" onClick={handleSignOut}>
+          <LogOut className="size-4" aria-hidden="true" />
+        </Button>
       </div>
     </header>
   );

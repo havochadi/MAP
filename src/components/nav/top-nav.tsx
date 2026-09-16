@@ -1,19 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Home, Users, BookOpen, UserCircle, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { getInitials } from "@/lib/format";
-import { signOutAction } from "@/actions/coaches";
+import { signOut } from "@/lib/supabase/session";
 import { AppLogo } from "@/components/app-logo";
 
 type NavCoach = { id: string; name: string; isAdmin: boolean };
 
 export function TopNav({ coach }: { coach: NavCoach }) {
   const pathname = usePathname();
+  const router = useRouter();
+  async function handleSignOut() {
+    await signOut();
+    router.push("/login");
+  }
   const profileHref = `/coaches/${coach.id}`;
   const links = [
     { href: "/", label: "Home", icon: Home },
@@ -77,11 +82,9 @@ export function TopNav({ coach }: { coach: NavCoach }) {
           <Avatar size="sm">
             <AvatarFallback>{getInitials(coach.name)}</AvatarFallback>
           </Avatar>
-          <form action={signOutAction}>
-            <Button type="submit" variant="ghost" size="icon" aria-label="Sign out">
-              <LogOut className="size-4" aria-hidden="true" />
-            </Button>
-          </form>
+          <Button type="button" variant="ghost" size="icon" aria-label="Sign out" onClick={handleSignOut}>
+            <LogOut className="size-4" aria-hidden="true" />
+          </Button>
         </div>
       </div>
     </header>

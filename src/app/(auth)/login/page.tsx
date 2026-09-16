@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
-import { loginAction, studentLoginAction, quickLoginAction } from "@/actions/coaches";
+import { useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { loginAction, studentLoginAction, quickLoginAction } from "@/lib/api/auth";
 import { AppLogo } from "@/components/app-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,15 +11,24 @@ import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [coachState, coachFormAction, isCoachPending] = useActionState(loginAction, undefined);
   const [studentState, studentFormAction, isStudentPending] = useActionState(studentLoginAction, undefined);
-  const [quickCoachState, quickCoachAction, isQuickCoachPending] = useActionState(quickLoginAction.bind(null, "coach"), undefined);
-  const [quickAdminState, quickAdminAction, isQuickAdminPending] = useActionState(quickLoginAction.bind(null, "admin"), undefined);
-  const [quickStudentState, quickStudentAction, isQuickStudentPending] = useActionState(
-    quickLoginAction.bind(null, "student"),
-    undefined,
-  );
+  const [quickCoachState, quickCoachAction, isQuickCoachPending] = useActionState(() => quickLoginAction("coach"), undefined);
+  const [quickAdminState, quickAdminAction, isQuickAdminPending] = useActionState(() => quickLoginAction("admin"), undefined);
+  const [quickStudentState, quickStudentAction, isQuickStudentPending] = useActionState(() => quickLoginAction("student"), undefined);
   const quickLoginError = quickCoachState?.error ?? quickAdminState?.error ?? quickStudentState?.error;
+
+  // Plan 2a's actions return {success: true} rather than performing a
+  // server-side redirect (NextAuth's signIn() used to do this internally,
+  // by throwing) — navigation is this page's own responsibility now.
+  useEffect(() => {
+    if (coachState?.success || quickCoachState?.success || quickAdminState?.success) {
+      router.push("/");
+    } else if (studentState?.success || quickStudentState?.success) {
+      router.push("/student");
+    }
+  }, [coachState, studentState, quickCoachState, quickAdminState, quickStudentState, router]);
 
   return (
     <div className="flex min-h-svh items-center justify-center bg-gradient-to-b from-[color-mix(in_oklch,var(--gradient-primary-start),white_92%)] via-muted/30 to-muted/40 px-4">

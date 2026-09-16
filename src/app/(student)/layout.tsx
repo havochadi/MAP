@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
-import { getCurrentStudent } from "@/lib/session";
+"use client";
+
+import { useRequireStudent } from "@/lib/supabase/session";
 import { Toaster } from "@/components/ui/sonner";
 import { StudentTopBar } from "@/components/student/student-top-bar";
 
@@ -9,9 +10,9 @@ import { StudentTopBar } from "@/components/student/student-top-bar";
 // data cards (StudentProfileContent) stay identical between the two: the
 // underlying attendance/progress presentation was already clean and clear,
 // it's the surrounding entry experience that needed to feel different.
-export default async function StudentLayout({ children }: { children: React.ReactNode }) {
-  const student = await getCurrentStudent();
-  if (!student) redirect("/login");
+export default function StudentLayout({ children }: { children: React.ReactNode }) {
+  const student = useRequireStudent();
+  if (!student) return null;
 
   return (
     <div className="min-h-svh bg-gradient-to-b from-[color-mix(in_oklch,var(--gradient-primary-start),white_92%)] via-background to-background">

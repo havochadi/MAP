@@ -21,7 +21,15 @@ async function coachClient(email: string, password: string) {
 
 async function main() {
   const shift = await prisma.coachShift.findFirstOrThrow({ include: { coach: true } });
-  const otherCoach = await prisma.coach.findFirstOrThrow({ where: { email: { not: shift.coach.email } } });
+  // Same residue-poisoning risk the fixture predicate below was hardened
+  // against (final-review finding I2's re-review flagged this site too,
+  // out of scope for that fix round but trivial to close alongside it): a
+  // throwaway verify-* coach could otherwise be picked here, and this
+  // script's coachClient() call always logs in with the hardcoded
+  // "Coach123!", not that residue coach's real password.
+  const otherCoach = await prisma.coach.findFirstOrThrow({
+    where: { AND: [{ email: { not: shift.coach.email } }, { email: { not: { startsWith: "verify-" } } }] },
+  });
 
   const { client: owningClient } = await coachClient(shift.coach.email, "Coach123!");
   const { data: ownRead } = await owningClient.from("CoachShift").select("id").eq("id", shift.id).maybeSingle();

@@ -1,31 +1,66 @@
+"use client";
+
+import { use, useEffect, useState } from "react";
 import { notFound } from "next/navigation";
 import { ChevronDown } from "lucide-react";
-import { getTopics } from "@/data/curriculum";
+import { useRequireCoach } from "@/lib/supabase/session";
+import { getTopics } from "@/lib/api/curriculum";
 import { formatSubject, formatLevel, parseTeachingSteps, parseWorkedExamples } from "@/lib/format";
 import { parseDiagramSpec } from "@/lib/diagrams";
 import { TopicDiagram } from "@/components/curriculum/topic-diagram";
 import { SUBJECTS } from "@/validations/class";
 import { LEVELS } from "@/validations/student";
-import type { Subject, Level } from "@/generated/prisma/client";
+import type { Enums } from "@/lib/supabase/database.types";
 
-export const dynamic = "force-dynamic";
+type Subject = Enums<"Subject">;
+type Level = Enums<"Level">;
+type Topic = Awaited<ReturnType<typeof getTopics>>[number];
 
-export default async function CurriculumTopicsPage({
+export default function CurriculumTopicsPage({
   params,
 }: {
   params: Promise<{ subject: string; level: string }>;
 }) {
-  const { subject: subjectParam, level: levelParam } = await params;
+  // Next 15 still hands Client Component pages a Promise-shaped params prop
+  // (only Server Components may `await` it directly) — React's `use()` is
+  // the client-side equivalent, and unlike other hooks it's allowed to run
+  // before an early return, which is what makes the notFound() call below
+  // (after every hook in this component) safe under the Rules of Hooks.
+  const { subject: subjectParam, level: levelParam } = use(params);
   const subjectUpper = subjectParam.toUpperCase();
   const levelUpper = levelParam.toUpperCase();
+  const paramsValid = (SUBJECTS as readonly string[]).includes(subjectUpper) && (LEVELS as readonly string[]).includes(levelUpper);
+  const subject = paramsValid ? (subjectUpper as Subject) : null;
+  const level = paramsValid ? (levelUpper as Level) : null;
 
-  if (!(SUBJECTS as readonly string[]).includes(subjectUpper) || !(LEVELS as readonly string[]).includes(levelUpper)) {
-    notFound();
+  const coach = useRequireCoach();
+  const [topics, setTopics] = useState<Topic[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const ready = !!coach && paramsValid;
+
+  useEffect(() => {
+    if (!ready || !subject || !level) return;
+    let cancelled = false;
+    getTopics(subject, level)
+      .then((data) => {
+        if (!cancelled) setTopics(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load topics.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, subject, level]);
+
+  if (!paramsValid || !subject || !level) notFound();
+  if (!coach) return null;
+  if (error) {
+    return <p className="text-sm text-destructive">{error}</p>;
   }
-  const subject = subjectUpper as Subject;
-  const level = levelUpper as Level;
-
-  const topics = await getTopics(subject, level);
+  if (topics === null) {
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
+  }
   if (topics.length === 0) notFound();
 
   return (

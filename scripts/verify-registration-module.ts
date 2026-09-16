@@ -69,7 +69,9 @@ async function main() {
   // shift directly via Prisma Client instead (id/updatedAt auto-handled by
   // Prisma Client itself, unlike a raw supabase-js insert — this bypass
   // only applies when going through Prisma, which this setup step does).
-  const testCoach = await prisma.coach.findFirstOrThrow({ where: { isAdmin: false, shifts: { none: { status: "OPEN" } } } });
+  const testCoach = await prisma.coach.findFirstOrThrow({
+    where: { isAdmin: false, email: { not: { startsWith: "verify-" } }, shifts: { none: { status: "OPEN" } } },
+  });
   const testVenue = await prisma.venue.findFirstOrThrow();
   const today = new Date().toISOString().slice(0, 10);
   const testShift = await prisma.coachShift.create({
@@ -117,7 +119,12 @@ async function main() {
 
   // registerAndCheckInStudent-equivalent rejection: a coach with no open shift.
   const noShiftCoach = await prisma.coach.findFirstOrThrow({
-    where: { isAdmin: false, id: { not: testCoach.id }, shifts: { none: { status: "OPEN" } } },
+    where: {
+      isAdmin: false,
+      id: { not: testCoach.id },
+      email: { not: { startsWith: "verify-" } },
+      shifts: { none: { status: "OPEN" } },
+    },
   });
   const noShiftSession = await coachClient(noShiftCoach.email, "Coach123!");
   await sharedSupabase.auth.setSession(noShiftSession);

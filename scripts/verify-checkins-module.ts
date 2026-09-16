@@ -22,7 +22,30 @@ async function coachClient(email: string, password: string) {
 async function main() {
   // Prove the RLS gap this RPC exists to solve: a student NOT enrolled in
   // any class this coach is assigned to still can't be read directly.
-  const shiftWithCoach = await prisma.coachShift.findFirstOrThrow({ where: { status: "OPEN" }, include: { coach: true } });
+  //
+  // An OPEN shift isn't always present in seed data (prisma/seed.ts only
+  // seeds one when today has a scheduled session) — findFirstOrThrow on
+  // "status: OPEN" would then throw and take down the whole suite on a
+  // fresh reseed on a non-session day. Create a dedicated fixture shift
+  // instead, same pattern as verify-registration-module.ts's testShift
+  // (Prisma Client handles id/updatedAt; no day-of-week gating to route
+  // around since this test only needs *a* coach with an open shift, not
+  // clockIn's own scheduling logic).
+  const testCoach = await prisma.coach.findFirstOrThrow({
+    where: { isAdmin: false, email: { not: { startsWith: "verify-" } }, shifts: { none: { status: "OPEN" } } },
+  });
+  const testVenue = await prisma.venue.findFirstOrThrow();
+  const testShift = await prisma.coachShift.create({
+    data: {
+      coachId: testCoach.id,
+      venueId: testVenue.id,
+      shiftBlock: "WEEKDAY_EVENING",
+      shiftDate: new Date().toISOString().slice(0, 10),
+      clockInAt: new Date(),
+      status: "OPEN",
+    },
+  });
+  const shiftWithCoach = { ...testShift, coach: testCoach };
   const unrelatedStudent = await prisma.student.findFirstOrThrow({
     where: { enrollments: { none: { class: { assignments: { some: { coachId: shiftWithCoach.coachId } } } } } },
   });
@@ -102,7 +125,10 @@ async function main() {
   }
 
   const noShiftCoach = await prisma.coach.findFirstOrThrow({
-    where: { email: { not: shiftWithCoach.coach.email }, shifts: { none: { status: "OPEN" } } },
+    where: {
+      AND: [{ email: { not: shiftWithCoach.coach.email } }, { email: { not: { startsWith: "verify-" } } }],
+      shifts: { none: { status: "OPEN" } },
+    },
   });
   const { session: noShiftSession } = await coachClient(noShiftCoach.email, "Coach123!");
   await sharedSupabase.auth.setSession(noShiftSession);
@@ -129,6 +155,13 @@ async function main() {
   await prisma.checkIn.deleteMany({
     where: { studentId: unrelatedStudent.id, venueId: shiftWithCoach.venueId, checkInDate: (await import("../src/lib/dates")).getSingaporeTodayString() },
   });
+
+  // Teardown for the fixture shift created above, by its own generated id
+  // only — this table has unlimited capacity (a fresh shift per run), but
+  // leaving it OPEN would itself become residue future runs' fixture
+  // predicates could pick up (the exact class of bug this file's own
+  // testCoach/noShiftCoach predicates were just hardened against above).
+  await prisma.coachShift.delete({ where: { id: testShift.id } });
 
   await prisma.$disconnect();
   console.log(

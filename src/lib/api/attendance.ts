@@ -157,7 +157,12 @@ export async function markAttendanceRecord(
     .maybeSingle();
 
   const { data: session, error: sessionError } = existingSession
-    ? await supabase.from("AttendanceSession").update({ markedByCoachId: coachId }).eq("id", existingSession.id).select("*").maybeSingle()
+    ? await supabase
+        .from("AttendanceSession")
+        .update({ markedByCoachId: coachId, updatedAt: new Date().toISOString() })
+        .eq("id", existingSession.id)
+        .select("*")
+        .maybeSingle()
     : await supabase
         .from("AttendanceSession")
         .insert({ id: crypto.randomUUID(), classId, sessionDate, markedByCoachId: coachId, updatedAt: new Date().toISOString() })
@@ -185,7 +190,7 @@ export async function markAttendanceRecord(
   const { data: recordData, error: recordError } = existingRecord
     ? await supabase
         .from("AttendanceRecord")
-        .update({ status, excused: excused ?? false, remarks })
+        .update({ status, excused: excused ?? false, remarks, updatedAt: new Date().toISOString() })
         .eq("id", existingRecord.id)
         .select("id")
         .maybeSingle()
@@ -232,7 +237,7 @@ export async function submitAttendanceSession(input: unknown): Promise<ActionRes
 
   const { data: updated, error: updateError } = await supabase
     .from("AttendanceSession")
-    .update({ submittedAt: new Date().toISOString() })
+    .update({ submittedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
     .eq("id", session.id)
     .select("id")
     .maybeSingle();
@@ -276,7 +281,7 @@ export async function reopenAttendanceSession(input: unknown): Promise<ActionRes
 
   const { data, error } = await supabase
     .from("AttendanceSession")
-    .update({ submittedAt: null })
+    .update({ submittedAt: null, updatedAt: new Date().toISOString() })
     .eq("id", parsed.data.sessionId)
     .select("id")
     .maybeSingle();

@@ -95,7 +95,7 @@ export async function clockOut(input: unknown): Promise<ActionResult> {
 
   const { data, error } = await supabase
     .from("CoachShift")
-    .update({ clockOutAt: new Date().toISOString(), status: "PENDING" })
+    .update({ clockOutAt: new Date().toISOString(), status: "PENDING", updatedAt: new Date().toISOString() })
     .eq("id", parsed.data.shiftId)
     .eq("status", "OPEN")
     .select("id")
@@ -116,7 +116,7 @@ export async function editShift(input: unknown): Promise<ActionResult> {
 
   const { data, error } = await supabase
     .from("CoachShift")
-    .update({ clockInAt: clockInAt.toISOString(), clockOutAt: clockOutAt?.toISOString() ?? null })
+    .update({ clockInAt: clockInAt.toISOString(), clockOutAt: clockOutAt?.toISOString() ?? null, updatedAt: new Date().toISOString() })
     .eq("id", parsed.data.shiftId)
     // Matches the old app-level rule that even an admin must reopen an
     // APPROVED/REJECTED shift before editing — stricter than RLS's own
@@ -134,7 +134,7 @@ export async function reopenShift(input: unknown): Promise<ActionResult> {
 
   const { data, error } = await supabase
     .from("CoachShift")
-    .update({ status: "PENDING", approvedAt: null, approvedByCoachId: null })
+    .update({ status: "PENDING", approvedAt: null, approvedByCoachId: null, updatedAt: new Date().toISOString() })
     .eq("id", parsed.data.shiftId)
     .select("id")
     .maybeSingle();
@@ -148,7 +148,7 @@ export async function approveShift(adminId: string, input: unknown): Promise<Act
 
   const { data, error } = await supabase
     .from("CoachShift")
-    .update({ status: "APPROVED", approvedByCoachId: adminId, approvedAt: new Date().toISOString() })
+    .update({ status: "APPROVED", approvedByCoachId: adminId, approvedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
     .eq("id", parsed.data.shiftId)
     .eq("status", "PENDING")
     .select("id")
@@ -168,6 +168,7 @@ export async function rejectShift(adminId: string, input: unknown): Promise<Acti
       approvedByCoachId: adminId,
       approvedAt: new Date().toISOString(),
       reviewNote: parsed.data.reviewNote,
+      updatedAt: new Date().toISOString(),
     })
     .eq("id", parsed.data.shiftId)
     .eq("status", "PENDING")

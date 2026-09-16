@@ -1,5 +1,4 @@
 import "dotenv/config";
-import { createClient } from "@supabase/supabase-js";
 import { PrismaClient } from "../src/generated/prisma/client";
 
 const url = process.env.SUPABASE_URL!;
@@ -7,124 +6,107 @@ const anonKey = process.env.SUPABASE_ANON_KEY!;
 const loginUrl = `${url}/functions/v1/coach-login`;
 const prisma = new PrismaClient();
 
-async function coachClient(email: string, password: string) {
+async function coachSession(email: string, password: string) {
   const res = await fetch(loginUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${anonKey}` },
     body: JSON.stringify({ email, password }),
   });
   const { session } = await res.json();
-  const client = createClient(url, anonKey);
-  await client.auth.setSession(session);
-  return client;
+  return session;
 }
 
 async function main() {
+  // Drives the real, exported functions (not hand-transcribed raw queries)
+  // — final whole-branch review finding I3: getClassesForCoach is the most
+  // logic-heavy function in this task (two-stage narrowing, a Map-based
+  // session join, a manual enrollment count, a two-key sort) and had never
+  // had a single line of its actual shipped code run; createClass spreads
+  // a Zod result straight into an .insert(), which only calling the real
+  // function (not a replica with a hand-written literal) can catch drifting.
+  const {
+    getClassesForCoach,
+    getClassById,
+    getClassDetail,
+    getAllClassesForSelect,
+    getAllVenuesWithClassCounts,
+    getVenueWithClasses,
+    createClass,
+  } = await import("../src/lib/api/classes");
+  const { supabase: sharedSupabase } = await import("../src/lib/supabase/client");
+
   const assignment = await prisma.classAssignment.findFirst({ include: { coach: true, class: true } });
   if (!assignment) throw new Error("No ClassAssignment found in seed data — cannot run this check.");
 
-  const assignedClient = await coachClient(assignment.coach.email, "Coach123!");
+  await sharedSupabase.auth.setSession(await coachSession(assignment.coach.email, "Coach123!"));
 
-  const { data: myAssignments } = await assignedClient.from("ClassAssignment").select("classId").eq("coachId", assignment.coachId);
-  if (!myAssignments || !myAssignments.some((a) => a.classId === assignment.classId)) {
-    console.error("FAIL: getClassesForCoach-equivalent's assignment lookup didn't find the expected class.");
+  // getClassesForCoach-equivalent, non-admin branch: also gives us a class
+  // outside this coach's assignments, needed to actually prove the
+  // narrowing filter below (checking that the assigned class is *present*
+  // is not the same as checking that unrelated classes are *excluded* —
+  // Class RLS is fully open (`using (true)`), so nothing else would catch
+  // a regression if that app-level filter were ever silently dropped).
+  const myClasses = await getClassesForCoach(assignment.coachId, false);
+  if (!myClasses.some((c) => c.id === assignment.classId)) {
+    console.error("FAIL: getClassesForCoach should include the coach's assigned class, got", myClasses);
     process.exit(1);
   }
 
-  // getAllClassesForSelect-equivalent: the full, unfiltered class list —
-  // also gives us a class outside this coach's assignments, needed to
-  // actually prove getClassesForCoach's narrowing filter below (checking
-  // that the assignment lookup *found* the right class, above, is not the
-  // same as checking that the follow-up Class query *excludes* everything
-  // else — Class RLS is fully open (`using (true)`), so nothing else would
-  // catch a regression if that filter were ever silently dropped).
-  const { data: allClasses, error: allClassesError } = await assignedClient
-    .from("Class")
-    .select("*, venue:Venue(*)")
-    .order("level", { ascending: true });
-  if (allClassesError || !allClasses || allClasses.length === 0) {
-    console.error("FAIL: getAllClassesForSelect-equivalent should return rows, got", allClassesError, allClasses);
+  const allClasses = await getAllClassesForSelect();
+  if (!allClasses || allClasses.length === 0) {
+    console.error("FAIL: getAllClassesForSelect should return rows, got", allClasses);
     process.exit(1);
   }
-
-  const classIds = myAssignments.map((a) => a.classId);
-  const unassignedClass = allClasses.find((c) => !classIds.includes(c.id));
+  const myClassIds = myClasses.map((c) => c.id);
+  const unassignedClass = allClasses.find((c) => !myClassIds.includes(c.id));
   if (!unassignedClass) {
-    throw new Error("Seed data has this coach assigned to every class — cannot prove getClassesForCoach's narrowing filter excludes anything. Pick a different coach or add more classes to seed data.");
+    throw new Error(
+      "Seed data has this coach assigned to every class — cannot prove getClassesForCoach's narrowing filter excludes anything. Pick a different coach or add more classes to seed data.",
+    );
   }
-
-  // getClassesForCoach-equivalent's actual narrowing step (the module's
-  // .in("id", classIds) call): proving it returns exactly the coach's
-  // assigned classes, and none of the (known-to-exist) unassigned ones.
-  const { data: narrowedClasses, error: narrowedError } = await assignedClient.from("Class").select("id").in("id", classIds);
-  if (narrowedError || !narrowedClasses || narrowedClasses.length !== classIds.length) {
-    console.error("FAIL: getClassesForCoach-equivalent's narrowing query should return exactly the coach's assigned classes, got", narrowedError, narrowedClasses);
-    process.exit(1);
-  }
-  if (narrowedClasses.some((c) => c.id === unassignedClass.id)) {
-    console.error("FAIL: getClassesForCoach-equivalent's narrowing query leaked a class this coach isn't assigned to:", unassignedClass.id);
+  if (myClasses.some((c) => c.id === unassignedClass.id)) {
+    console.error("FAIL: getClassesForCoach leaked a class this coach isn't assigned to:", unassignedClass.id);
     process.exit(1);
   }
 
-  const { data: detail, error: detailError } = await assignedClient
-    .from("Class")
-    .select("*, venue:Venue(*), enrollments:Enrollment(*, student:Student(*))")
-    .eq("id", assignment.classId)
-    .eq("enrollments.status", "ACTIVE")
-    .maybeSingle();
-  if (detailError || !detail || !detail.venue) {
-    console.error("FAIL: getClassDetail-equivalent should return the class with its venue joined, got", detailError, detail);
+  // getClassesForCoach-equivalent, admin branch: isAdmin=true should see
+  // every class, not just assigned ones — never separately covered before
+  // (the only prior assertion exercised the non-admin narrowing path).
+  const adminView = await getClassesForCoach(assignment.coachId, true);
+  if (!adminView.some((c) => c.id === unassignedClass.id)) {
+    console.error("FAIL: getClassesForCoach(isAdmin=true) should include classes the coach isn't assigned to, got", adminView);
     process.exit(1);
   }
 
-  const { data: coachRows, error: coachRowsError } = await assignedClient
-    .from("coach_public")
-    .select("id, name, isAdmin")
-    .eq("id", assignment.coachId);
-  if (coachRowsError || !coachRows || coachRows.length !== 1) {
-    console.error("FAIL: coach_public lookup for the assignment's coach should return exactly one row, got", coachRowsError, coachRows);
+  const byId = await getClassById(assignment.classId);
+  if (!byId || !byId.venue) {
+    console.error("FAIL: getClassById should return the class with its venue joined, got", byId);
     process.exit(1);
   }
 
-  // getAllVenuesWithClassCounts-equivalent
-  const { data: venues, error: venuesError } = await assignedClient.from("Venue").select("*").order("name", { ascending: true });
-  if (venuesError || !venues || venues.length === 0) {
-    console.error("FAIL: getAllVenuesWithClassCounts-equivalent should return venue rows, got", venuesError, venues);
+  const detail = await getClassDetail(assignment.classId);
+  if (!detail || !detail.venue || !Array.isArray(detail.enrollments) || !Array.isArray(detail.assignments)) {
+    console.error("FAIL: getClassDetail should return the class with venue, enrollments and assignments, got", detail);
     process.exit(1);
   }
-  const venueIds = venues.map((v) => v.id);
-  const { data: venueClasses, error: venueClassesError } = await assignedClient.from("Class").select("venueId").in("venueId", venueIds);
-  const { data: venueCheckIns, error: venueCheckInsError } = await assignedClient.from("CheckIn").select("venueId").in("venueId", venueIds);
-  // CheckIn is coach-shift-scoped by RLS, so a non-admin's result here may
-  // legitimately be narrower than the true venue-wide count (empty is not
-  // a failure) — only a real error is.
-  if (venueClassesError || venueCheckInsError || !venueClasses || !venueCheckIns) {
-    console.error("FAIL: getAllVenuesWithClassCounts-equivalent's class/check-in count queries should succeed, got", venueClassesError, venueCheckInsError);
+  if (!detail.assignments.some((a) => a.coachId === assignment.coachId && a.coach?.id === assignment.coachId)) {
+    console.error("FAIL: getClassDetail's assignments should include this coach, coach_public-joined, got", detail.assignments);
     process.exit(1);
   }
 
-  // getVenueWithClasses-equivalent
-  const { data: venueRow, error: venueRowError } = await assignedClient
-    .from("Venue")
-    .select("*")
-    .eq("id", assignment.class.venueId)
-    .maybeSingle();
-  if (venueRowError || !venueRow) {
-    console.error("FAIL: getVenueWithClasses-equivalent's venue lookup should return a row, got", venueRowError, venueRow);
-    process.exit(1);
-  }
-  const { data: venueClassRows, error: venueClassRowsError } = await assignedClient
-    .from("Class")
-    .select("*, enrollments:Enrollment(*)")
-    .eq("venueId", assignment.class.venueId)
-    .eq("enrollments.status", "ACTIVE");
-  if (venueClassRowsError || !venueClassRows || venueClassRows.length === 0) {
-    console.error("FAIL: getVenueWithClasses-equivalent's class lookup should return rows for the venue, got", venueClassRowsError, venueClassRows);
+  const venuesWithCounts = await getAllVenuesWithClassCounts();
+  if (!venuesWithCounts || venuesWithCounts.length === 0) {
+    console.error("FAIL: getAllVenuesWithClassCounts should return rows, got", venuesWithCounts);
     process.exit(1);
   }
 
-  const { error: writeError } = await assignedClient.from("Class").insert({
-    id: crypto.randomUUID(),
+  const venueWithClasses = await getVenueWithClasses(assignment.class.venueId);
+  if (!venueWithClasses || venueWithClasses.classes.length === 0) {
+    console.error("FAIL: getVenueWithClasses should return the venue with its classes, got", venueWithClasses);
+    process.exit(1);
+  }
+
+  const rejectedClass = await createClass({
     venueId: assignment.class.venueId,
     subject: "MATH",
     level: "P3",
@@ -132,38 +114,45 @@ async function main() {
     startTime: "16:00",
     durationMinutes: 60,
   });
-  if (!writeError) {
-    console.error("FAIL: createClass-equivalent should be rejected by RLS for a non-admin coach.");
+  if (rejectedClass.success) {
+    console.error("FAIL: createClass should be rejected by RLS for a non-admin coach.");
     process.exit(1);
   }
 
   // The rejection case above only proves half of createClass's two
-  // outcomes (ActionResult is success|failure) — the allowed path,
-  // including the .insert().select() interaction, is unverified without
-  // this (same gap class already found and fixed in Tasks 2/3/4's verify
-  // scripts — the rejected insert above never created a row, so reusing
-  // its exact field values here can't collide).
-  const admin = await coachClient("admin@map.test", "Coach123!");
-  const { data: createdClass, error: adminWriteError } = await admin
-    .from("Class")
-    .insert({
-      id: crypto.randomUUID(),
-      venueId: assignment.class.venueId,
-      subject: "MATH",
-      level: "P3",
-      dayOfWeek: "MON",
-      startTime: "16:00",
-      durationMinutes: 60,
-    })
-    .select("id")
-    .single();
-  if (adminWriteError || !createdClass) {
-    console.error("FAIL: createClass-equivalent should succeed for an admin, got", adminWriteError, createdClass);
+  // outcomes — the allowed path, including the .insert().select()
+  // interaction, is unverified without this (the rejected insert above
+  // never created a row, so reusing its exact field values here can't
+  // collide).
+  await sharedSupabase.auth.setSession(await coachSession("admin@map.test", "Coach123!"));
+  const createdClass = await createClass({
+    venueId: assignment.class.venueId,
+    subject: "MATH",
+    level: "P3",
+    dayOfWeek: "MON",
+    startTime: "16:00",
+    durationMinutes: 60,
+  });
+  if (!createdClass.success) {
+    console.error("FAIL: createClass should succeed for an admin, got", createdClass);
     process.exit(1);
   }
 
+  await sharedSupabase.auth.signOut();
+
+  // Teardown: the one Class this run's createClass call created, by its
+  // own generated id only — never a broader subject/level/day filter.
+  // Final whole-branch review finding I2: this script previously left a
+  // MATH/P3/MON/16:00 class behind on every run with no cleanup, and the
+  // ledger (Task 7) already identifies this exact payload as a direct
+  // contributor to a prior fixture-pool exhaustion incident.
+  await prisma.class.delete({ where: { id: createdClass.data.classId } });
+
   await prisma.$disconnect();
-  console.log("PASS: Classes module queries (list, narrowing, detail with venue+enrollments+student, coach_public lookup, venue counts, venue-with-classes) all work; class insert succeeds for admin and is rejected for a non-admin");
+  console.log(
+    "PASS: Classes module (list for coach incl. narrowing, list for admin, byId, detail with venue+enrollments+assignments, " +
+      "getAllClassesForSelect, venue counts, venue-with-classes) all work; class insert succeeds for admin and is rejected for a non-admin",
+  );
 }
 
 main();

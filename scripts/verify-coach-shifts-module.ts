@@ -93,7 +93,9 @@ async function main() {
     // data" case below.
     console.log(`(today, ${today}, has no scheduled shift blocks — skipping the clockIn-dependent lifecycle assertions)`);
   } else {
-    const clockInTestCoach = await prisma.coach.findFirst({ where: { isAdmin: false, shifts: { none: { status: "OPEN" } } } });
+    const clockInTestCoach = await prisma.coach.findFirst({
+      where: { isAdmin: false, email: { not: { startsWith: "verify-" } }, shifts: { none: { status: "OPEN" } } },
+    });
     if (!clockInTestCoach) {
       throw new Error("No non-admin coach without an OPEN shift found — cannot test clockIn's lifecycle.");
     }

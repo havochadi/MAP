@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireStudent } from "@/lib/session";
-import { getStudentProfile } from "@/data/students";
+import { getStudentProfile } from "@/lib/api/students";
 import { StudentProfileContent } from "@/components/students/student-profile-content";
 
 export default async function StudentDashboardPage() {

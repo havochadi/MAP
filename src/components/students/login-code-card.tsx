@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
-import { regenerateLoginCode } from "@/actions/students";
+import { regenerateLoginCode } from "@/lib/api/students";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 

@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { generateQrDataUrl } from "@/lib/qr";
 import { getInitials, formatLevel, EMERGENCY_CONTACT_LABELS } from "@/lib/format";
 import { formatDateForDisplay } from "@/lib/dates";
@@ -5,14 +8,24 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { QrDisplay } from "@/components/registration/qr-display";
-import type { getStudentProfile } from "@/data/students";
+import type { getStudentProfile } from "@/lib/api/students";
 
 type StudentProfileData = NonNullable<Awaited<ReturnType<typeof getStudentProfile>>>;
 
 // Shared between the coach-facing student profile (/students/[id]) and the
 // student's own self-view (/student) — same data, same read-only rendering.
-export async function StudentProfileContent({ student, checkIns }: StudentProfileData) {
-  const qrDataUrl = await generateQrDataUrl(student.loginCode);
+export function StudentProfileContent({ student, checkIns }: StudentProfileData) {
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    generateQrDataUrl(student.loginCode).then((url) => {
+      if (!cancelled) setQrDataUrl(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [student.loginCode]);
 
   return (
     <div className="space-y-6">
@@ -34,7 +47,7 @@ export async function StudentProfileContent({ student, checkIns }: StudentProfil
         </div>
       </div>
 
-      <QrDisplay name={student.name} loginCode={student.loginCode} qrDataUrl={qrDataUrl} />
+      {qrDataUrl && <QrDisplay name={student.name} loginCode={student.loginCode} qrDataUrl={qrDataUrl} />}
 
       <Card>
         <CardHeader>

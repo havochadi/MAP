@@ -1,15 +1,18 @@
-import { redirect } from "next/navigation";
+"use client";
+
 import { Toaster } from "@/components/ui/sonner";
-import { getCurrentCoach } from "@/lib/session";
+import { useRequireCoach } from "@/lib/supabase/session";
 import { TopNav } from "@/components/nav/top-nav";
 import { BottomTabBar } from "@/components/nav/bottom-tab-bar";
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const coach = await getCurrentCoach();
-  // Middleware already gates unauthenticated requests, but this page still
-  // needs the session to render the nav — checking again here is effectively
-  // free and keeps this layout correct even if it's ever reached another way.
-  if (!coach) redirect("/login");
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  // useRequireCoach() redirects client-side once it confirms there's no
+  // session (see src/lib/supabase/session.tsx) — it returns null both while
+  // still resolving AND once redirecting, so rendering nothing until it's
+  // truthy is the closest client-side equivalent of the old server-side
+  // "redirect before render" behavior.
+  const coach = useRequireCoach();
+  if (!coach) return null;
 
   return (
     <div className="flex min-h-svh flex-col">

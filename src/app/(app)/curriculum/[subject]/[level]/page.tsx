@@ -8,6 +8,8 @@ import { SUBJECTS } from "@/validations/class";
 import { LEVELS } from "@/validations/student";
 import type { Subject, Level } from "@/generated/prisma/client";
 
+export const dynamic = "force-dynamic";
+
 export default async function CurriculumTopicsPage({
   params,
 }: {

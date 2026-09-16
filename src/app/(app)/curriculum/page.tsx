@@ -4,6 +4,8 @@ import { formatSubject, formatLevel } from "@/lib/format";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Subject } from "@/generated/prisma/client";
 
+export const dynamic = "force-dynamic";
+
 export default async function CurriculumIndexPage() {
   const combos = await getSubjectLevelCombos();
 

@@ -1,17 +1,39 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { requireCoach } from "@/lib/session";
-import { getStudentsForCoach } from "@/data/students";
+import { useRequireAdmin } from "@/lib/supabase/session";
+import { getStudentsForCoach } from "@/lib/api/students";
 import { formatLevel, getInitials } from "@/lib/format";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export default async function StudentsPage() {
-  const coach = await requireCoach();
-  if (!coach.isAdmin) redirect("/");
-  const students = await getStudentsForCoach(coach.id, coach.isAdmin);
+type Student = Awaited<ReturnType<typeof getStudentsForCoach>>[number];
+
+export default function StudentsPage() {
+  const coach = useRequireAdmin();
+  const [students, setStudents] = useState<Student[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const ready = !!coach;
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    getStudentsForCoach()
+      .then((data) => {
+        if (!cancelled) setStudents(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load students.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready]);
+
+  if (!coach) return null;
 
   return (
     <div className="space-y-4">
@@ -29,7 +51,11 @@ export default async function StudentsPage() {
         )}
       </div>
 
-      {students.length === 0 ? (
+      {error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : students === null ? (
+        <p className="text-sm text-muted-foreground">Loading students…</p>
+      ) : students.length === 0 ? (
         <p className="text-sm text-muted-foreground">No students to show yet.</p>
       ) : (
         <ul className="divide-y rounded-lg border">

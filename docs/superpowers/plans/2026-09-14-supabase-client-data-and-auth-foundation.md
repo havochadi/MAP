@@ -3612,3 +3612,36 @@ git commit -m "chore: complete Supabase client-side data and auth foundation (Pl
 ```
 
 **Plan 2b** (page-by-page conversion of all 18 Server Component pages + 9 form components to Client Components on top of this plan's `src/lib/api/`/`src/lib/supabase/session.tsx`) gets written next. Its first task must be the login-page-and-middleware cutover this plan deliberately deferred (see this plan's header) — everything else in this plan is ready for it to consume as-is.
+
+## Known follow-up for Plan 2b/2c — not fixed in this branch
+
+This plan's final whole-branch review (see the now-deleted SDD workspace's
+`final-review-report.md`, finding I5, for the full writeup) found a real
+gap that is explicitly **not** a defect this plan introduced — it's
+inherited from Plan 1 and only became visible once this plan's `src/lib/api/`
+modules made the whole registration→login chain visible end-to-end:
+
+**Neither registration path provisions `auth.users` or sets
+`Student.authUserId`.** `student-login` (Plan 1) refuses any student whose
+`authUserId` is null. The only write site of `Student.authUserId` in the
+entire repo is `scripts/provision-auth-users.ts`, a one-shot manual backfill
+from Plan 1's own Task 3. Neither `register-student` (the Edge Function
+`src/lib/api/registration.ts`'s `registerStudent` wraps) nor this plan's new
+`register_and_checkin_student` RPC (`registerAndCheckInStudent`) creates an
+`auth.users` row or sets `authUserId` — so every student registered through
+either path gets a working `loginCode`, a check-in, and a guardian
+notification, and is then silently unable to sign in to the student portal
+(`student-login` returns the generic "Invalid code.", not a hint that the
+account is unprovisioned).
+
+Under the old NextAuth-based login this was invisible, since login never
+went through Supabase Auth. **Before Plan 2b wires a registration page (or
+Plan 2c, whichever adds it first) to `registerStudent`/
+`registerAndCheckInStudent`, both paths need to provision an `auth.users`
+row and set `authUserId` in the same transaction/response.** For the RPC
+specifically: a `SECURITY DEFINER` Postgres function cannot call the Auth
+admin API, so `registerAndCheckInStudent` likely needs to become an Edge
+Function wrapper (like `registerStudent` already is), or `register-student`
+itself needs to grow the provisioning step with the RPC called from inside
+it. Worth a short design note before that task starts, not a code change
+here.

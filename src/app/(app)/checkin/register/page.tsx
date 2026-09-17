@@ -15,14 +15,19 @@ export default function RegisterVisitorPage() {
   const router = useRouter();
   const coach = useRequireCoach();
   const [openShift, setOpenShift] = useState<OpenShift | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
   const ready = !!coach;
 
   useEffect(() => {
     if (!ready || !coach) return;
     let cancelled = false;
-    getOpenShiftForCoach(coach.id).then((data) => {
-      if (!cancelled) setOpenShift(data);
-    });
+    getOpenShiftForCoach(coach.id)
+      .then((data) => {
+        if (!cancelled) setOpenShift(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load your shift.");
+      });
     return () => {
       cancelled = true;
     };
@@ -36,6 +41,7 @@ export default function RegisterVisitorPage() {
   }, [openShift, router]);
 
   if (!coach) return null;
+  if (error) return <p className="text-sm text-destructive">{error}</p>;
   if (openShift === undefined || openShift === null) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }

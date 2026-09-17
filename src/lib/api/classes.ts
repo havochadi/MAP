@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import { getSingaporeTodayString } from "@/lib/dates";
 import { createClassSchema } from "@/validations/class";
+import { LEVELS } from "@/validations/student";
 import type { ActionResult } from "./types";
 
 export async function getClassesForCoach(coachId: string, isAdmin: boolean) {
@@ -36,7 +37,7 @@ export async function getClassesForCoach(coachId: string, isAdmin: boolean) {
   for (const e of enrollments) countByClass.set(e.classId, (countByClass.get(e.classId) ?? 0) + 1);
 
   return classes
-    .sort((a, b) => a.venue.name.localeCompare(b.venue.name) || a.level.localeCompare(b.level))
+    .sort((a, b) => a.venue.name.localeCompare(b.venue.name) || LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level))
     .map((cls) => ({
       ...cls,
       studentCount: countByClass.get(cls.id) ?? 0,
@@ -89,7 +90,7 @@ export async function getAllClassesForSelect() {
     .select("*, venue:Venue(*)")
     .order("level", { ascending: true });
   if (error) throw error;
-  return classes.sort((a, b) => a.venue.name.localeCompare(b.venue.name) || a.level.localeCompare(b.level));
+  return classes.sort((a, b) => a.venue.name.localeCompare(b.venue.name) || LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level));
 }
 
 export async function getAllVenuesWithClassCounts() {
@@ -132,7 +133,7 @@ export async function getVenueWithClasses(venueId: string) {
     ...venue,
     classes: classes
       .map((c) => ({ ...c, _count: { enrollments: c.enrollments.length } }))
-      .sort((a, b) => a.level.localeCompare(b.level) || a.subject.localeCompare(b.subject)),
+      .sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level) || a.subject.localeCompare(b.subject)),
   };
 }
 

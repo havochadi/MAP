@@ -6,8 +6,8 @@
 
 **Architecture:** Two things not yet needed by any prior slice:
 
-1. **Drop `canAccessClass` entirely — it is fully redundant under RLS, per Plan 2a's own documented finding #6** (`canAccessClass`, `src/lib/authorization.ts`, is not ported anywhere in this migration, and this is the first slice that would otherwise need to port it). The old page: `if (!(await canAccessClass(coach.id, classId, coach.isAdmin))) redirect("/")`. The RLS policy on `Class`/`ClassAssignment`/`Enrollment` already enforces the identical "admin, or assigned coach" rule server-side — `getClassDetail(classId)` simply returns `null` for a class the caller can't see, which this page already needs to treat as not-found (matching the existing `students/[studentId]`/`venues/[venueId]` 3-state pattern). No client-side authorization check is added to replace it — RLS is the boundary, not a UX nicety layered on top, same as every prior detail page.
-2. **`getClassDetail`'s `assignments[].coach` is typed nullable (`Coach | null`), unlike the old Prisma path's non-null `a.coach`.** Plan 2a's `getClassDetail` (`src/lib/api/classes.ts`) merges `coach_public` rows in client-side (a view, can't be nested-joined via `supabase-js`'s FK embedding — Plan 2a finding #4) via `coachById.get(a.coachId) ?? null` — a defensive fallback for a lookup that should always succeed for a valid assignment, but the type reflects the real possibility. Both places this task reads `a.coach.id`/`a.coach.name` must filter out (or otherwise handle) a null `coach` first, or `tsc` will correctly reject the old code's direct `a.coach.id` access.
+1. **Drop `canAccessClass` entirely — but the reasoning is narrower than an earlier draft of this note claimed, and the actual RLS behavior on `Class` is different from what that draft said.** `canAccessClass` (`src/lib/authorization.ts`) is not ported anywhere in this migration, and this is the first slice that would otherwise need to port it. The old page: `if (!(await canAccessClass(coach.id, classId, coach.isAdmin))) redirect("/")`. **This plan originally claimed "RLS on `Class`/`ClassAssignment`/`Enrollment` already enforces the identical 'admin, or assigned coach' rule" — that is false for `Class` specifically, and this plan's own final review caught it.** Per the spec's own RLS policy table (`docs/superpowers/specs/2026-09-13-static-github-pages-supabase-migration-design.md:172`), `Class` is deliberately, by design, readable by **any authenticated user** — grouped with `Venue`/`CurriculumTopic` as "public read tables" (see the migration's own name, `rls_public_read_tables`). `getClassDetail(classId)` therefore returns a real, non-null row for *any* `classId`, even to a coach with zero relationship to it — the nested `enrollments`/`assignments` come back correctly empty (those two tables *are* admin-or-assigned-gated), so the page renders real class metadata (label, venue) with empty coach/student sections, not a not-found page. **This is spec-conformant, not a bug** — the misconception was this plan's own over-generalization of Plan 2a finding #6, which is genuinely scoped to `AttendanceSession`/`AttendanceRecord` RLS covering `canAccessClass`'s old *attendance-specific* check, not a claim about `Class`-table read access itself. `canAccessClass` is still correctly dropped here (its removal isn't what caused this — the app-level check was already the *only* thing narrowing `Class` visibility beyond the spec's own public-read design, and removing it simply lets the spec'd behavior show through, matching every other page in this migration's "RLS is the boundary" convention). Separately and independently, `ClassAssignment`'s spec'd read policy ("admin; the coach's own assignments," `spec:177`) is *also* implemented exactly as written, but has a real product-visible side effect worth a deliberate decision: an assigned coach can no longer see *other* coaches assigned to the same class (a working feature in the old app, which had no per-row restriction). Neither of these is a client-code defect — both are documented, ruled, and raised to the user separately from this plan's own diff, which needs no changes for either.
+2. **`getClassDetail`'s `assignments[].coach` has two separate layers of nullability, not just one.** Plan 2a's `getClassDetail` (`src/lib/api/classes.ts`) merges `coach_public` rows in client-side (a view, can't be nested-joined via `supabase-js`'s FK embedding — Plan 2a finding #4) via `coachById.get(a.coachId) ?? null` — the *outer* `coach: Coach | null` is a defensive fallback for a lookup that should always succeed for a valid assignment. Separately, `coach_public` is itself a Postgres *view*, and PostgREST's generated types mark every view column nullable regardless of the underlying (`NOT NULL`) column's real nullability — the same quirk already documented in `src/lib/api/attendance.ts`'s `getRosterWithSession` (`markedByCoach: { id: string | null; name: string | null; isAdmin: boolean | null } | null`). So even after confirming `a.coach !== null`, `a.coach.id`/`a.coach.name` are *themselves* individually typed `string | null` — a second assertion is needed on top of the outer one. Confirmed empirically while executing this plan: `tsc` rejected a single-level `a.coach!.id` with `Type 'string | null' is not assignable to type 'string'`. Both places this task reads `a.coach.id`/`a.coach.name` need the two-level handling (`a.coach!.id!`), not just a null-check on `coach` itself.
 
 All data functions this task needs already exist verbatim in Plan 2a's client modules (`@/lib/api/classes.ts`, `@/lib/api/coaches.ts`) — no new backend/data-layer work.
 
@@ -79,6 +79,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
+    setCls(undefined);
     setError(null);
     getClassDetail(classId)
       .then((result) => {
@@ -92,9 +93,15 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     };
   }, [ready, classId]);
 
+  // Depends on classId too (even though the coach list itself is the same
+  // regardless of which class is open) so a navigation to a different class
+  // gives this fetch a fresh retry attempt if it previously failed — without
+  // resetting `allCoaches` itself, which would otherwise re-flash "Loading…"
+  // for classId-independent data on every class-to-class navigation.
   useEffect(() => {
     if (!ready || !isAdmin) return;
     let cancelled = false;
+    setError(null);
     getAllCoachesForSelect()
       .then((result) => {
         if (!cancelled) setAllCoaches(result);
@@ -105,7 +112,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     return () => {
       cancelled = true;
     };
-  }, [ready, isAdmin]);
+  }, [ready, isAdmin, classId]);
 
   if (!coach) return null;
   if (error) {
@@ -120,9 +127,15 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   // valid assignment, but getClassDetail's type allows it — see this plan's
   // Architecture note) rather than asserting non-null, so a real data gap
   // fails safe (the coach is silently omitted) instead of crashing the page.
+  // The inner `.id!`/`.name!` assertions are a second, separate nullability:
+  // coach_public is a Postgres view, and PostgREST's generated types mark
+  // every view column nullable regardless of the underlying (NOT NULL)
+  // column's real nullability (same quirk already documented in
+  // src/lib/api/attendance.ts's getRosterWithSession) — a matched row's
+  // id/name are never actually null, only typed that way.
   const assignedCoaches = cls.assignments
     .filter((a) => a.coach !== null)
-    .map((a) => ({ id: a.coach!.id, name: a.coach!.name }));
+    .map((a) => ({ id: a.coach!.id!, name: a.coach!.name! }));
   const availableCoaches =
     isAdmin && allCoaches ? allCoaches.filter((c) => !assignedCoaches.some((a) => a.id === c.id)) : [];
 

@@ -27,6 +27,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
+    setCls(undefined);
     setError(null);
     getClassDetail(classId)
       .then((result) => {
@@ -40,9 +41,15 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     };
   }, [ready, classId]);
 
+  // Depends on classId too (even though the coach list itself is the same
+  // regardless of which class is open) so a navigation to a different class
+  // gives this fetch a fresh retry attempt if it previously failed — without
+  // resetting `allCoaches` itself, which would otherwise re-flash "Loading…"
+  // for classId-independent data on every class-to-class navigation.
   useEffect(() => {
     if (!ready || !isAdmin) return;
     let cancelled = false;
+    setError(null);
     getAllCoachesForSelect()
       .then((result) => {
         if (!cancelled) setAllCoaches(result);
@@ -53,7 +60,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     return () => {
       cancelled = true;
     };
-  }, [ready, isAdmin]);
+  }, [ready, isAdmin, classId]);
 
   if (!coach) return null;
   if (error) {

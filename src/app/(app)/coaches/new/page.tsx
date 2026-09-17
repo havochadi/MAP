@@ -1,10 +1,11 @@
-import { redirect } from "next/navigation";
-import { requireCoach } from "@/lib/session";
+"use client";
+
+import { useRequireAdmin } from "@/lib/supabase/session";
 import { CreateCoachForm } from "@/components/coaches/create-coach-form";
 
-export default async function NewCoachPage() {
-  const coach = await requireCoach();
-  if (!coach.isAdmin) redirect("/");
+export default function NewCoachPage() {
+  const coach = useRequireAdmin();
+  if (!coach) return null;
 
   return (
     <div className="space-y-4">

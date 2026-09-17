@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { createClass } from "@/actions/classes";
+import { createClass } from "@/lib/api/classes";
 import { SUBJECTS, DAYS_OF_WEEK } from "@/validations/class";
 import { LEVELS } from "@/validations/student";
 import { formatSubject, formatLevel } from "@/lib/format";

@@ -1,18 +1,45 @@
-import { redirect } from "next/navigation";
-import { requireCoach } from "@/lib/session";
-import { getAllVenuesWithClassCounts } from "@/data/classes";
+"use client";
+
+import { use, useEffect, useState } from "react";
+import { useRequireAdmin } from "@/lib/supabase/session";
+import { getAllVenuesWithClassCounts } from "@/lib/api/classes";
 import { CreateClassForm } from "@/components/classes/create-class-form";
 
-export default async function NewClassPage({
+type Venues = Awaited<ReturnType<typeof getAllVenuesWithClassCounts>>;
+
+export default function NewClassPage({
   searchParams,
 }: {
   searchParams: Promise<{ venueId?: string }>;
 }) {
-  const coach = await requireCoach();
-  if (!coach.isAdmin) redirect("/");
+  const coach = useRequireAdmin();
+  const { venueId } = use(searchParams);
+  const [venues, setVenues] = useState<Venues | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  const ready = !!coach;
 
-  const { venueId } = await searchParams;
-  const venues = await getAllVenuesWithClassCounts();
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    getAllVenuesWithClassCounts()
+      .then((data) => {
+        if (!cancelled) setVenues(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load venues.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready]);
+
+  if (!coach) return null;
+  if (error) {
+    return <p className="text-sm text-destructive">{error}</p>;
+  }
+  if (venues === undefined) {
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
+  }
 
   return (
     <div className="space-y-4">

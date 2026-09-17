@@ -1,4 +1,6 @@
-import { registerStudent } from "@/actions/registration";
+"use client";
+
+import { registerStudent } from "@/lib/api/registration";
 import { RegistrationFlow } from "@/components/registration/registration-flow";
 import { AppLogo } from "@/components/app-logo";
 

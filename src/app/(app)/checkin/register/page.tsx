@@ -1,15 +1,44 @@
-import { redirect } from "next/navigation";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { requireCoach } from "@/lib/session";
-import { getOpenShiftForCoach } from "@/data/coach-shifts";
-import { registerAndCheckInStudent } from "@/actions/registration";
+import { useRequireCoach } from "@/lib/supabase/session";
+import { getOpenShiftForCoach } from "@/lib/api/coach-shifts";
+import { registerAndCheckInStudent } from "@/lib/api/registration";
 import { RegistrationFlow } from "@/components/registration/registration-flow";
 import { buttonVariants } from "@/components/ui/button";
 
-export default async function RegisterVisitorPage() {
-  const coach = await requireCoach();
-  const openShift = await getOpenShiftForCoach(coach.id);
-  if (!openShift) redirect("/");
+type OpenShift = Awaited<ReturnType<typeof getOpenShiftForCoach>>;
+
+export default function RegisterVisitorPage() {
+  const router = useRouter();
+  const coach = useRequireCoach();
+  const [openShift, setOpenShift] = useState<OpenShift | undefined>(undefined);
+  const ready = !!coach;
+
+  useEffect(() => {
+    if (!ready || !coach) return;
+    let cancelled = false;
+    getOpenShiftForCoach(coach.id).then((data) => {
+      if (!cancelled) setOpenShift(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, coach]);
+
+  // Matches the original's redirect("/") when there's no open shift — a
+  // separate effect, not an inline call during render, same convention as
+  // every other post-fetch redirect in this plan-lineage.
+  useEffect(() => {
+    if (openShift === null) router.replace("/");
+  }, [openShift, router]);
+
+  if (!coach) return null;
+  if (openShift === undefined || openShift === null) {
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
+  }
 
   return (
     <div className="space-y-4">

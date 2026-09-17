@@ -1,13 +1,14 @@
-import { redirect } from "next/navigation";
+"use client";
+
 import Link from "next/link";
-import { requireCoach } from "@/lib/session";
-import { registerStudent } from "@/actions/registration";
+import { useRequireAdmin } from "@/lib/supabase/session";
+import { registerStudent } from "@/lib/api/registration";
 import { RegistrationFlow } from "@/components/registration/registration-flow";
 import { buttonVariants } from "@/components/ui/button";
 
-export default async function NewStudentPage() {
-  const coach = await requireCoach();
-  if (!coach.isAdmin) redirect("/students");
+export default function NewStudentPage() {
+  const coach = useRequireAdmin();
+  if (!coach) return null;
 
   return (
     <div className="space-y-4">

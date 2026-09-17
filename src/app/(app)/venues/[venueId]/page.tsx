@@ -1,18 +1,46 @@
+"use client";
+
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { requireCoach } from "@/lib/session";
-import { getVenueWithClasses } from "@/data/classes";
+import { notFound } from "next/navigation";
+import { useRequireAdmin } from "@/lib/supabase/session";
+import { getVenueWithClasses } from "@/lib/api/classes";
 import { formatClassLabel } from "@/lib/format";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 
-export default async function VenueDetailPage({ params }: { params: Promise<{ venueId: string }> }) {
-  const { venueId } = await params;
-  const coach = await requireCoach();
-  if (!coach.isAdmin) redirect("/");
+type VenueWithClasses = Awaited<ReturnType<typeof getVenueWithClasses>>;
 
-  const venue = await getVenueWithClasses(venueId);
-  if (!venue) notFound();
+export default function VenueDetailPage({ params }: { params: Promise<{ venueId: string }> }) {
+  const { venueId } = use(params);
+  const coach = useRequireAdmin();
+  const [venue, setVenue] = useState<VenueWithClasses | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  const ready = !!coach;
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    getVenueWithClasses(venueId)
+      .then((data) => {
+        if (!cancelled) setVenue(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load this venue.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, venueId]);
+
+  if (!coach) return null;
+  if (error) {
+    return <p className="text-sm text-destructive">{error}</p>;
+  }
+  if (venue === undefined) {
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
+  }
+  if (venue === null) notFound();
 
   return (
     <div className="space-y-6">

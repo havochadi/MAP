@@ -33,6 +33,12 @@ export default function PayrollPage({
       .catch(() => setError("Could not load pending shifts."));
   }, []);
 
+  const refreshApprovedShifts = useCallback(() => {
+    getPaySummary(from, to)
+      .then(setApprovedShifts)
+      .catch(() => setError("Could not load pay summary."));
+  }, [from, to]);
+
   useEffect(() => {
     if (!ready) return;
     refreshPending();
@@ -72,7 +78,14 @@ export default function PayrollPage({
 
       <div className="space-y-3">
         <h2 className="text-sm font-medium text-muted-foreground">Pending review</h2>
-        <PendingShiftsTable shifts={pending} adminId={coach.id} onChanged={refreshPending} />
+        <PendingShiftsTable
+          shifts={pending}
+          adminId={coach.id}
+          onChanged={() => {
+            refreshPending();
+            refreshApprovedShifts();
+          }}
+        />
       </div>
 
       <div className="space-y-3">

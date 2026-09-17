@@ -3,20 +3,26 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { editShift } from "@/actions/coach-shifts";
+import { editShift } from "@/lib/api/coach-shifts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 
-type Shift = { id: string; clockInAt: Date; clockOutAt: Date | null };
+// clockInAt/clockOutAt accept both Date (the still-unconverted
+// PendingShiftsTable's caller, Prisma-shaped) and string (this file's own
+// now-Supabase-shaped ShiftHistory caller) — narrowing to string-only broke
+// tsc against the other, still-valid caller. new Date(value) below already
+// handles both identically; only the type annotation needed widening.
+type Shift = { id: string; clockInAt: Date | string; clockOutAt: Date | string | null };
 
-function toDatetimeLocal(date: Date): string {
+function toDatetimeLocal(value: Date | string): string {
+  const date = new Date(value);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function EditShiftDialog({ shift }: { shift: Shift }) {
+export function EditShiftDialog({ shift, onSaved }: { shift: Shift; onSaved?: () => void }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -34,7 +40,8 @@ export function EditShiftDialog({ shift }: { shift: Shift }) {
       }
       toast.success("Shift updated.");
       setOpen(false);
-      router.refresh();
+      if (onSaved) onSaved();
+      else router.refresh();
     });
   }
 

@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { reopenShift } from "@/actions/coach-shifts";
+import { reopenShift } from "@/lib/api/coach-shifts";
 import { computeShiftHours, computeShiftPay } from "@/lib/pay";
 import { formatDateForDisplay } from "@/lib/dates";
 import { SHIFT_BLOCKS, type ShiftBlockKey } from "@/lib/shift-blocks";
@@ -16,8 +16,8 @@ type Shift = {
   venue: { name: string };
   shiftDate: string;
   shiftBlock: ShiftBlockKey;
-  clockInAt: Date;
-  clockOutAt: Date | null;
+  clockInAt: string;
+  clockOutAt: string | null;
   status: "OPEN" | "PENDING" | "APPROVED" | "REJECTED";
   reviewNote: string | null;
 };
@@ -29,7 +29,15 @@ const STATUS_VARIANT = {
   REJECTED: "destructive",
 } as const;
 
-export function ShiftHistory({ shifts, canReopen }: { shifts: Shift[]; canReopen: boolean }) {
+export function ShiftHistory({
+  shifts,
+  canReopen,
+  onChanged,
+}: {
+  shifts: Shift[];
+  canReopen: boolean;
+  onChanged?: () => void;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -41,7 +49,8 @@ export function ShiftHistory({ shifts, canReopen }: { shifts: Shift[]; canReopen
         return;
       }
       toast.success("Reopened for editing.");
-      router.refresh();
+      if (onChanged) onChanged();
+      else router.refresh();
     });
   }
 
@@ -65,7 +74,9 @@ export function ShiftHistory({ shifts, canReopen }: { shifts: Shift[]; canReopen
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Badge variant={STATUS_VARIANT[shift.status]}>{shift.status}</Badge>
-            {(shift.status === "OPEN" || shift.status === "PENDING") && <EditShiftDialog shift={shift} />}
+            {(shift.status === "OPEN" || shift.status === "PENDING") && (
+              <EditShiftDialog shift={shift} onSaved={onChanged} />
+            )}
             {canReopen && (shift.status === "APPROVED" || shift.status === "REJECTED") && (
               <Button size="sm" variant="ghost" disabled={isPending} onClick={() => handleReopen(shift.id)}>
                 Reopen

@@ -8,7 +8,7 @@ import { SHIFT_BLOCKS, type ShiftBlockKey } from "@/lib/shift-blocks";
 
 export const HOURLY_RATE = 80;
 
-export type PayShiftLike = { shiftBlock: ShiftBlockKey; clockOutAt: Date | null };
+export type PayShiftLike = { shiftBlock: ShiftBlockKey; clockOutAt: Date | string | null };
 
 export function computeShiftHours(shift: PayShiftLike): number {
   if (!shift.clockOutAt) return 0;

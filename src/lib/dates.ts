@@ -41,3 +41,19 @@ export function formatDateForDisplay(dateStr: string): string {
 export function isPastOrToday(dateStr: string): boolean {
   return dateStr <= getSingaporeTodayString();
 }
+
+// Supabase/PostgREST serializes a TIMESTAMP(3) (no-tz) column's value
+// without a trailing offset — e.g. "2026-09-15T13:32:09.839" — even though
+// it's stored as a UTC wall-clock value by convention (every write in this
+// codebase goes through `new Date().toISOString()` first). JS's Date
+// constructor parses an offset-less ISO string as LOCAL time per spec, not
+// UTC, silently misreading these instants by exactly the local UTC offset.
+// Any code reading a raw DateTime/TIMESTAMP(3) field from Supabase and
+// formatting it in local time must go through this, never a bare
+// `new Date(rawField)` — confirmed to have caused a real, cumulative data
+// corruption bug (repeated edits drifting clockInAt/clockOutAt by -8h each
+// time) before this function existed.
+export function parseUtcTimestamp(value: string): Date {
+  const hasOffset = /Z$|[+-]\d{2}:?\d{2}$/.test(value);
+  return new Date(hasOffset ? value : `${value}Z`);
+}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { scanCheckIn } from "@/lib/api/checkins";
 import { clockOut } from "@/lib/api/coach-shifts";
+import { parseUtcTimestamp } from "@/lib/dates";
 import { Scanner } from "@/components/checkin/scanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,7 +78,7 @@ export function CheckInDesk({
             <p className="text-sm font-medium">Clocked in at {shift.venue.name}</p>
             <p className="text-xs opacity-80">
               {SHIFT_BLOCKS[shift.shiftBlock].label} · since{" "}
-              {new Date(shift.clockInAt).toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" })}
+              {parseUtcTimestamp(shift.clockInAt).toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" })}
             </p>
           </div>
           <Button

@@ -1,27 +1,84 @@
+"use client";
+
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { requireCoach } from "@/lib/session";
-import { canAccessClass } from "@/lib/authorization";
-import { getClassDetail } from "@/data/classes";
-import { getAllCoachesForSelect } from "@/data/coaches";
+import { notFound } from "next/navigation";
+import { useRequireCoach } from "@/lib/supabase/session";
+import { getClassDetail } from "@/lib/api/classes";
+import { getAllCoachesForSelect } from "@/lib/api/coaches";
 import { formatClassLabel, getInitials } from "@/lib/format";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { AssignCoachForm } from "@/components/classes/assign-coach-form";
 
-export default async function ClassDetailPage({ params }: { params: Promise<{ classId: string }> }) {
-  const { classId } = await params;
-  const coach = await requireCoach();
-  if (!(await canAccessClass(coach.id, classId, coach.isAdmin))) redirect("/");
+type ClassDetail = Awaited<ReturnType<typeof getClassDetail>>;
+type SelectableCoach = Awaited<ReturnType<typeof getAllCoachesForSelect>>[number];
 
-  const cls = await getClassDetail(classId);
-  if (!cls) notFound();
+export default function ClassDetailPage({ params }: { params: Promise<{ classId: string }> }) {
+  const { classId } = use(params);
+  const coach = useRequireCoach();
+  const [cls, setCls] = useState<ClassDetail | undefined>(undefined);
+  const [allCoaches, setAllCoaches] = useState<SelectableCoach[] | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  const ready = !!coach;
+  const isAdmin = !!coach?.isAdmin;
 
-  const assignedCoaches = cls.assignments.map((a) => ({ id: a.coach.id, name: a.coach.name }));
-  const availableCoaches = coach.isAdmin
-    ? (await getAllCoachesForSelect()).filter((c) => !assignedCoaches.some((a) => a.id === c.id))
-    : [];
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    setError(null);
+    getClassDetail(classId)
+      .then((result) => {
+        if (!cancelled) setCls(result);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load this class.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, classId]);
+
+  useEffect(() => {
+    if (!ready || !isAdmin) return;
+    let cancelled = false;
+    getAllCoachesForSelect()
+      .then((result) => {
+        if (!cancelled) setAllCoaches(result);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load coaches.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, isAdmin]);
+
+  if (!coach) return null;
+  if (error) {
+    return <p className="text-sm text-destructive">{error}</p>;
+  }
+  if (cls === undefined) {
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
+  }
+  if (cls === null) notFound();
+
+  // Filters out a null coach on an assignment row (should never happen for a
+  // valid assignment, but getClassDetail's type allows it — see this plan's
+  // Architecture note) rather than asserting non-null, so a real data gap
+  // fails safe (the coach is silently omitted) instead of crashing the page.
+  // The inner `.id!`/`.name!` assertions are a second, separate nullability:
+  // coach_public is a Postgres view, and PostgREST's generated types mark
+  // every view column nullable regardless of the underlying (NOT NULL)
+  // column's real nullability (same quirk already documented in
+  // src/lib/api/attendance.ts's getRosterWithSession) — a matched row's
+  // id/name are never actually null, only typed that way.
+  const assignedCoaches = cls.assignments
+    .filter((a) => a.coach !== null)
+    .map((a) => ({ id: a.coach!.id!, name: a.coach!.name! }));
+  const availableCoaches =
+    isAdmin && allCoaches ? allCoaches.filter((c) => !assignedCoaches.some((a) => a.id === c.id)) : [];
 
   return (
     <div className="space-y-6">
@@ -38,23 +95,27 @@ export default async function ClassDetailPage({ params }: { params: Promise<{ cl
 
       <div>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">Coaches</h2>
-        {coach.isAdmin ? (
-          <AssignCoachForm classId={classId} assignedCoaches={assignedCoaches} availableCoaches={availableCoaches} />
+        {isAdmin ? (
+          allCoaches === undefined ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : (
+            <AssignCoachForm classId={classId} assignedCoaches={assignedCoaches} availableCoaches={availableCoaches} />
+          )
         ) : (
           <div className="flex flex-wrap gap-2">
-            {cls.assignments.length === 0 ? (
+            {assignedCoaches.length === 0 ? (
               <p className="text-sm text-muted-foreground">No coaches assigned yet.</p>
             ) : (
-              cls.assignments.map((a) => (
+              assignedCoaches.map((c) => (
                 <Link
-                  key={a.coach.id}
-                  href={`/coaches/${a.coach.id}`}
+                  key={c.id}
+                  href={`/coaches/${c.id}`}
                   className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm hover:bg-muted/50"
                 >
                   <Avatar size="sm">
-                    <AvatarFallback>{getInitials(a.coach.name)}</AvatarFallback>
+                    <AvatarFallback>{getInitials(c.name)}</AvatarFallback>
                   </Avatar>
-                  {a.coach.name}
+                  {c.name}
                 </Link>
               ))
             )}

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
-import { assignCoachToClass, unassignCoachFromClass } from "@/actions/coaches";
+import { assignCoachToClass, unassignCoachFromClass } from "@/lib/api/coaches";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { getInitials } from "@/lib/format";

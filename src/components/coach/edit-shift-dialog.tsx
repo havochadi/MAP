@@ -9,14 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 
-// clockInAt/clockOutAt accept both Date (the still-unconverted
-// PendingShiftsTable's caller, Prisma-shaped) and string (this file's own
-// now-Supabase-shaped ShiftHistory caller) — narrowing to string-only broke
-// tsc against the other, still-valid caller. new Date(value) below already
-// handles both identically; only the type annotation needed widening.
-type Shift = { id: string; clockInAt: Date | string; clockOutAt: Date | string | null };
+type Shift = { id: string; clockInAt: string; clockOutAt: string | null };
 
-function toDatetimeLocal(value: Date | string): string {
+function toDatetimeLocal(value: string): string {
   const date = new Date(value);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;

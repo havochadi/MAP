@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { approveShift, rejectShift } from "@/actions/coach-shifts";
+import { approveShift, rejectShift } from "@/lib/api/coach-shifts";
 import { computeShiftHours, computeShiftPay } from "@/lib/pay";
 import { formatDateForDisplay } from "@/lib/dates";
 import { SHIFT_BLOCKS, type ShiftBlockKey } from "@/lib/shift-blocks";
@@ -20,23 +19,30 @@ type Shift = {
   venue: { name: string };
   shiftDate: string;
   shiftBlock: ShiftBlockKey;
-  clockInAt: Date;
-  clockOutAt: Date | null;
+  clockInAt: string;
+  clockOutAt: string | null;
 };
 
-export function PendingShiftsTable({ shifts }: { shifts: Shift[] }) {
-  const router = useRouter();
+export function PendingShiftsTable({
+  shifts,
+  adminId,
+  onChanged,
+}: {
+  shifts: Shift[];
+  adminId: string;
+  onChanged: () => void;
+}) {
   const [isPending, startTransition] = useTransition();
 
   function handleApprove(shiftId: string) {
     startTransition(async () => {
-      const result = await approveShift({ shiftId });
+      const result = await approveShift(adminId, { shiftId });
       if (!result.success) {
         toast.error(result.error);
         return;
       }
       toast.success("Approved.");
-      router.refresh();
+      onChanged();
     });
   }
 
@@ -68,11 +74,11 @@ export function PendingShiftsTable({ shifts }: { shifts: Shift[] }) {
             <TableCell>${computeShiftPay(shift).toFixed(2)}</TableCell>
             <TableCell>
               <div className="flex justify-end gap-2">
-                <EditShiftDialog shift={shift} />
+                <EditShiftDialog shift={shift} onSaved={onChanged} />
                 <Button size="sm" variant="outline" disabled={isPending} onClick={() => handleApprove(shift.id)}>
                   Approve
                 </Button>
-                <RejectShiftDialog shiftId={shift.id} />
+                <RejectShiftDialog shiftId={shift.id} adminId={adminId} onChanged={onChanged} />
               </div>
             </TableCell>
           </TableRow>
@@ -82,21 +88,20 @@ export function PendingShiftsTable({ shifts }: { shifts: Shift[] }) {
   );
 }
 
-function RejectShiftDialog({ shiftId }: { shiftId: string }) {
-  const router = useRouter();
+function RejectShiftDialog({ shiftId, adminId, onChanged }: { shiftId: string; adminId: string; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   function handleSubmit(formData: FormData) {
     startTransition(async () => {
-      const result = await rejectShift({ shiftId, reviewNote: formData.get("reviewNote") });
+      const result = await rejectShift(adminId, { shiftId, reviewNote: formData.get("reviewNote") });
       if (!result.success) {
         toast.error(result.error);
         return;
       }
       toast.success("Rejected.");
       setOpen(false);
-      router.refresh();
+      onChanged();
     });
   }
 

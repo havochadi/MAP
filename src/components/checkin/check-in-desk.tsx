@@ -3,17 +3,25 @@
 import { useCallback, useState, useTransition, type FormEvent } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { scanCheckIn } from "@/actions/checkins";
-import { clockOut } from "@/actions/coach-shifts";
+import { scanCheckIn } from "@/lib/api/checkins";
+import { clockOut } from "@/lib/api/coach-shifts";
 import { Scanner } from "@/components/checkin/scanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { SHIFT_BLOCKS, type ShiftBlockKey } from "@/lib/shift-blocks";
 
-type Shift = { id: string; venue: { name: string }; clockInAt: Date; shiftBlock: ShiftBlockKey };
+type Shift = { id: string; venue: { name: string }; clockInAt: string; shiftBlock: ShiftBlockKey };
 
-export function CheckInDesk({ shift, initialCount }: { shift: Shift; initialCount: number }) {
+export function CheckInDesk({
+  shift,
+  initialCount,
+  onClockedOut,
+}: {
+  shift: Shift;
+  initialCount: number;
+  onClockedOut: () => void;
+}) {
   const [scanning, setScanning] = useState(true);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
   const [count, setCount] = useState(initialCount);
@@ -53,7 +61,11 @@ export function CheckInDesk({ shift, initialCount }: { shift: Shift; initialCoun
   function handleClockOut() {
     startClockOutTransition(async () => {
       const result = await clockOut({ shiftId: shift.id });
-      if (!result.success) toast.error(result.error);
+      if (!result.success) {
+        toast.error(result.error);
+        return;
+      }
+      onClockedOut();
     });
   }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { clockIn } from "@/actions/coach-shifts";
+import { clockIn } from "@/lib/api/coach-shifts";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -10,10 +10,21 @@ type Venue = { id: string; name: string };
 type Block = { key: string; label: string };
 type FormState = { error?: string } | undefined;
 
-export function ClockInForm({ venues, blocks }: { venues: Venue[]; blocks: Block[] }) {
+export function ClockInForm({
+  coachId,
+  venues,
+  blocks,
+  onClockedIn,
+}: {
+  coachId: string;
+  venues: Venue[];
+  blocks: Block[];
+  onClockedIn: () => void;
+}) {
   async function action(_prevState: FormState, formData: FormData): Promise<FormState> {
-    const result = await clockIn({ venueId: formData.get("venueId"), shiftBlock: formData.get("shiftBlock") });
+    const result = await clockIn(coachId, { venueId: formData.get("venueId"), shiftBlock: formData.get("shiftBlock") });
     if (!result.success) return { error: result.error };
+    onClockedIn();
     return undefined;
   }
   const [state, formAction, isPending] = useActionState(action, undefined);

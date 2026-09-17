@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRequireCoach } from "@/lib/supabase/session";
 import { getOpenShiftForCoach } from "@/lib/api/coach-shifts";
 import { getCheckInCountForShift } from "@/lib/api/checkins";
@@ -15,24 +15,34 @@ type Venue = { id: string; name: string };
 
 export default function DashboardPage() {
   const coach = useRequireCoach();
+  const coachId = coach?.id;
   // Recomputed every render, not hoisted to module scope — see Global Constraints.
   const todayBlocks = blocksForDay(getDayOfWeek(getSingaporeTodayString()));
+  const todayBlockCount = todayBlocks.length;
 
   const [openShift, setOpenShift] = useState<OpenShift | undefined>(undefined);
   const [venues, setVenues] = useState<Venue[] | undefined>(undefined);
   const [count, setCount] = useState<number | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const latestRequestRef = useRef(0);
 
   // Owned here (not inside ClockInForm/CheckInDesk) because clocking in or
   // out changes which of those two components should even be on screen —
   // there's no Server Action revalidatePath to do this for us anymore, see
   // this plan's Architecture note.
   const refreshShift = useCallback(() => {
-    if (!coach) return;
-    getOpenShiftForCoach(coach.id)
-      .then(setOpenShift)
-      .catch(() => setError("Could not load your shift."));
-  }, [coach]);
+    if (!coachId) return;
+    const requestId = ++latestRequestRef.current;
+    getOpenShiftForCoach(coachId)
+      .then((shift) => {
+        if (latestRequestRef.current !== requestId) return;
+        setOpenShift(shift);
+        setCount(undefined);
+      })
+      .catch(() => {
+        if (latestRequestRef.current === requestId) setError("Could not load your shift.");
+      });
+  }, [coachId]);
 
   useEffect(() => {
     refreshShift();
@@ -44,16 +54,12 @@ export default function DashboardPage() {
       getCheckInCountForShift(openShift.id)
         .then(setCount)
         .catch(() => setError("Could not load check-in count."));
-    } else if (todayBlocks.length > 0) {
+    } else if (todayBlockCount > 0) {
       getAllVenues()
         .then(setVenues)
         .catch(() => setError("Could not load venues."));
     }
-    // todayBlocks is derived from the current date, not external state that
-    // changes within this effect's lifetime — omitted from deps deliberately,
-    // same reasoning as every other date-derived value in this codebase.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openShift]);
+  }, [openShift, todayBlockCount]);
 
   if (!coach) return null;
   if (error) {

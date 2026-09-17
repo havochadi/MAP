@@ -265,11 +265,11 @@ Everything else in this file is unchanged.
 In `src/components/coach/edit-shift-dialog.tsx`, make exactly these changes:
 
 1. Change the import: `import { editShift } from "@/lib/api/coach-shifts";`
-2. Widen the local `Shift` type and fix `toDatetimeLocal` to accept what Supabase actually returns — **this one is a real runtime crash if skipped, not just a type nicety**: `getFullYear()`/`getMonth()`/`getDate()`/`getHours()`/`getMinutes()` are `Date`-only methods, and `shift.clockInAt` is now a `string`:
+2. Widen the local `Shift` type and fix `toDatetimeLocal` to accept what Supabase actually returns — **this one is a real runtime crash if skipped, not just a type nicety**: `getFullYear()`/`getMonth()`/`getDate()`/`getHours()`/`getMinutes()` are `Date`-only methods, and `shift.clockInAt` is now a `string`. **Widen to `Date | string`, do not narrow to `string`-only** — `EditShiftDialog` has a second caller, `src/components/payroll/pending-shifts-table.tsx` (out of scope for this plan), whose shifts are still Prisma-shaped real `Date` objects; narrowing this type to `string`-only breaks `tsc` on that still-valid, still-unconverted call site (`error TS2719: Type 'Shift' is not assignable to type 'Shift'... Type 'Date' is not assignable to type 'string'`, confirmed by actually hitting this error while executing this plan). `new Date(value)` already handles both a `Date` and a `string` input identically, so only the type annotation needs widening, not the runtime logic:
 ```tsx
-type Shift = { id: string; clockInAt: string; clockOutAt: string | null };
+type Shift = { id: string; clockInAt: Date | string; clockOutAt: Date | string | null };
 
-function toDatetimeLocal(value: string): string {
+function toDatetimeLocal(value: Date | string): string {
   const date = new Date(value);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;

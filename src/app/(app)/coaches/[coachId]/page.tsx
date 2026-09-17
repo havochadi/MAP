@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { notFound, useRouter } from "next/navigation";
 import { useRequireCoach } from "@/lib/supabase/session";
@@ -71,10 +71,17 @@ export default function CoachProfilePage({ params }: { params: Promise<{ coachId
   // list should swap in quietly, not flash the page back to "Loading…".
   // The coachId-change reset lives in the separate effect right below,
   // which only runs on navigation, not on every mutation.
+  const latestShiftsRequestRef = useRef(0);
+
   const refreshShifts = useCallback(() => {
+    const requestId = ++latestShiftsRequestRef.current;
     getShiftHistoryForCoach(coachId)
-      .then(setShifts)
-      .catch(() => setError("Could not load shift history."));
+      .then((result) => {
+        if (latestShiftsRequestRef.current === requestId) setShifts(result);
+      })
+      .catch(() => {
+        if (latestShiftsRequestRef.current === requestId) setError("Could not load shift history.");
+      });
   }, [coachId]);
 
   useEffect(() => {

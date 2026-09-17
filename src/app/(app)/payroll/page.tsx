@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useRequireAdmin } from "@/lib/supabase/session";
 import { getPendingShifts, getPaySummary } from "@/lib/api/coach-shifts";
 import { getSingaporeTodayString } from "@/lib/dates";
@@ -26,17 +26,29 @@ export default function PayrollPage({
   const [approvedShifts, setApprovedShifts] = useState<ApprovedShifts | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const ready = !!coach;
+  const latestPendingRequestRef = useRef(0);
+  const latestPaySummaryRequestRef = useRef(0);
 
   const refreshPending = useCallback(() => {
+    const requestId = ++latestPendingRequestRef.current;
     getPendingShifts()
-      .then(setPending)
-      .catch(() => setError("Could not load pending shifts."));
+      .then((data) => {
+        if (latestPendingRequestRef.current === requestId) setPending(data);
+      })
+      .catch(() => {
+        if (latestPendingRequestRef.current === requestId) setError("Could not load pending shifts.");
+      });
   }, []);
 
   const refreshApprovedShifts = useCallback(() => {
+    const requestId = ++latestPaySummaryRequestRef.current;
     getPaySummary(from, to)
-      .then(setApprovedShifts)
-      .catch(() => setError("Could not load pay summary."));
+      .then((data) => {
+        if (latestPaySummaryRequestRef.current === requestId) setApprovedShifts(data);
+      })
+      .catch(() => {
+        if (latestPaySummaryRequestRef.current === requestId) setError("Could not load pay summary.");
+      });
   }, [from, to]);
 
   useEffect(() => {
@@ -46,18 +58,9 @@ export default function PayrollPage({
 
   useEffect(() => {
     if (!ready) return;
-    let cancelled = false;
-    getPaySummary(from, to)
-      .then((data) => {
-        if (!cancelled) setApprovedShifts(data);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Could not load pay summary.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [ready, from, to]);
+    setError(null);
+    refreshApprovedShifts();
+  }, [ready, from, to, refreshApprovedShifts]);
 
   if (!coach) return null;
   if (error) {

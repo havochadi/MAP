@@ -74,7 +74,16 @@ export default function AttendancePage({
           }))}
           initialSessionId={session?.id ?? null}
           initialSubmittedAt={session?.submittedAt ?? null}
-          markedByCoachName={session?.markedByCoach?.name ?? null}
+          // Falls back to the current coach's own name, not null: the old
+          // Server Action's revalidatePath re-rendered the whole page after
+          // the lazy session-create/submit, picking up the fresh
+          // markedByCoach join. Nothing does that now, so without this
+          // fallback the lock banner reads "Taken by a coach" instead of
+          // the actual name right after the current coach's own first mark
+          // — markAttendanceRecord always stamps markedByCoachId as the
+          // caller, so "no prior markedByCoach" + "now locked" can only mean
+          // the current coach is the one who just marked it.
+          markedByCoachName={session?.markedByCoach?.name ?? coach.name}
         />
       )}
     </div>

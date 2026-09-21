@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, Users, BookOpen, UserCircle, LogOut } from "lucide-react";
+import { Home, Users, BookOpen, UserCircle, Bell, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ export function TopNav({ coach }: { coach: NavCoach }) {
   const links = [
     { href: "/", label: "Home", icon: Home },
     { href: "/curriculum", label: "Curriculum", icon: BookOpen },
+    { href: "/notifications", label: "Notifications", icon: Bell },
     { href: profileHref, label: "Profile", icon: UserCircle },
   ];
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, BookOpen, UserCircle } from "lucide-react";
+import { Home, Users, BookOpen, UserCircle, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Deliberately not shadcn's Sidebar primitive — a slide-out drawer needs an
@@ -14,6 +14,7 @@ export function BottomTabBar({ profileHref, isAdmin }: { profileHref: string; is
     { href: "/", label: "Home", icon: Home },
     ...(isAdmin ? [{ href: "/students", label: "Students", icon: Users }] : []),
     { href: "/curriculum", label: "Curriculum", icon: BookOpen },
+    { href: "/notifications", label: "Notifications", icon: Bell },
     { href: profileHref, label: "Profile", icon: UserCircle },
   ];
 

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { StatusButton, type AttendanceStatus } from "./status-button";
-import { markAttendanceRecord, submitAttendanceSession, reopenAttendanceSession } from "@/actions/attendance";
+import { markAttendanceRecord, submitAttendanceSession, reopenAttendanceSession } from "@/lib/api/attendance";
 import { getInitials } from "@/lib/format";
 
 type RosterEntry = {
@@ -14,6 +14,7 @@ type RosterEntry = {
 };
 
 export function AttendanceRoster({
+  coachId,
   classId,
   sessionDate,
   initialRoster,
@@ -21,6 +22,7 @@ export function AttendanceRoster({
   initialSubmittedAt,
   markedByCoachName,
 }: {
+  coachId: string;
   classId: string;
   sessionDate: string;
   initialRoster: RosterEntry[];
@@ -45,7 +47,7 @@ export function AttendanceRoster({
     const previous = statuses[studentId];
     setStatuses((s) => ({ ...s, [studentId]: status }));
     startTransition(async () => {
-      const result = await markAttendanceRecord({ classId, sessionDate, studentId, status });
+      const result = await markAttendanceRecord(coachId, { classId, sessionDate, studentId, status });
       if (!result.success) {
         setStatuses((s) => ({ ...s, [studentId]: previous ?? null }));
         toast.error(result.error);

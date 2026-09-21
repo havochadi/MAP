@@ -1,29 +1,55 @@
-import { notFound, redirect } from "next/navigation";
-import { requireCoach } from "@/lib/session";
-import { canAccessClass } from "@/lib/authorization";
-import { getRosterWithSession } from "@/data/attendance";
+"use client";
+
+import { use, useEffect, useState } from "react";
+import { notFound } from "next/navigation";
+import { useRequireCoach } from "@/lib/supabase/session";
+import { getRosterWithSession } from "@/lib/api/attendance";
 import { getSingaporeTodayString, formatDateForDisplay } from "@/lib/dates";
 import { formatClassLabel } from "@/lib/format";
 import { AttendanceRoster } from "@/components/attendance/attendance-roster";
 
-export default async function AttendancePage({
+type RosterData = Awaited<ReturnType<typeof getRosterWithSession>>;
+
+export default function AttendancePage({
   params,
   searchParams,
 }: {
   params: Promise<{ classId: string }>;
   searchParams: Promise<{ date?: string }>;
 }) {
-  const { classId } = await params;
-  const { date } = await searchParams;
+  const { classId } = use(params);
+  const { date } = use(searchParams);
   const sessionDate = date ?? getSingaporeTodayString();
+  const coach = useRequireCoach();
+  const [data, setData] = useState<RosterData | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  const ready = !!coach;
 
-  const coach = await requireCoach();
-  if (!(await canAccessClass(coach.id, classId, coach.isAdmin))) {
-    redirect("/");
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    setData(undefined);
+    setError(null);
+    getRosterWithSession(classId, sessionDate)
+      .then((result) => {
+        if (!cancelled) setData(result);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load this class's attendance.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, classId, sessionDate]);
+
+  if (!coach) return null;
+  if (error) {
+    return <p className="text-sm text-destructive">{error}</p>;
   }
-
-  const data = await getRosterWithSession(classId, sessionDate);
-  if (!data) notFound();
+  if (data === undefined) {
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
+  }
+  if (data === null) notFound();
 
   const { class: cls, session, roster } = data;
 
@@ -39,6 +65,7 @@ export default async function AttendancePage({
         <p className="text-sm text-muted-foreground">No students are enrolled in this class yet.</p>
       ) : (
         <AttendanceRoster
+          coachId={coach.id}
           classId={classId}
           sessionDate={sessionDate}
           initialRoster={roster.map((r) => ({
@@ -46,7 +73,7 @@ export default async function AttendancePage({
             record: r.record ? { status: r.record.status, excused: r.record.excused } : null,
           }))}
           initialSessionId={session?.id ?? null}
-          initialSubmittedAt={session?.submittedAt?.toISOString() ?? null}
+          initialSubmittedAt={session?.submittedAt ?? null}
           markedByCoachName={session?.markedByCoach?.name ?? null}
         />
       )}
